@@ -46,6 +46,7 @@ gslm2-eval-codebook = "gslm2.eval.encoder.codebook:main"
 gslm2-eval-discophon = "gslm2.eval.encoder.discophon:main"
 gslm2-learn-kmeans = "gslm2.eval.slm.learn_kmeans:main"
 gslm2-extract-units = "gslm2.eval.slm.extract_units:main"
+gslm2-eval-slm = "gslm2.eval.slm.score_benchmarks:main"
 gslm2-duration-predictor = "gslm2.vocoder.duration.__main__:main"
 gslm2-unit-vocoder = "gslm2.vocoder.unit.__main__:main"
 

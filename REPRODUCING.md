@@ -50,10 +50,31 @@ python scripts/plot_map.py map.csv -o map.png
 python scripts/plot_pnmi_layerwise.py codebook-out/ -o pnmi.png
 ```
 
-## Spoken-LM evaluation (sWuggy / sBLIMP / StoryCloze)
+## Spoken-LM evaluation (sWuggy / sBLIMP / StoryCloze, `tab:slm`)
 
-(Coming next: native benchmark CLIs over `eval/slm`; validation during
-training via the `slm`/`lm_loss` specs in `configs/slm/*.yaml` already works.)
+```bash
+# single-stream: audio pairs in, on-the-fly encoding with the training encoder
+gslm2-eval-slm --config configs/slm/ll-6kh-300m.yaml \
+  --checkpoint /path/to/slm-ckpt.pt --pairs-dir /path/to/sLM21-pairs \
+  --benchmarks lexical_test_invocab lexical_test_oov syntactic_test sSC tSC \
+  --out results/slm-ll-6kh-300m.json
+# text LM: same CLI, text pair CSVs (positive/negative columns)
+gslm2-eval-slm --config configs/textlm/lh-6kh-300m.yaml \
+  --checkpoint /path/to/textlm-ckpt.pt --pairs-dir /path/to/text-pairs \
+  --benchmarks syntactic_test --out results/textlm.json
+```
+
+Build audio pair manifests from ZeroSpeech downloads once:
+
+```bash
+python scripts/create_slm_pair_manifests.py --data-dir /path/to/sLM21-dataset \
+  --output-dir /path/to/sLM21-pairs   # see scripts/PAIR_MANIFEST_FORMAT.md
+```
+
+Multi-stream (GSLM2) scores pre-extracted `|`-joined unit pairs: extract the
+benchmark audio with `manifests_test=[benchmark.csv]` (6-stream config), pair
+with `gslm2.eval.slm.create_pairs.create_paired_file`, then run
+`gslm2-eval-slm` with the GSLM2 training config over the `pairs/` dir.
 
 ## Generation, LT-Swap, resynthesis, multilingual cascade
 

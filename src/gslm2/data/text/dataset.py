@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 import torch
 import torch.distributed as dist
 from torch.utils.data import DataLoader, Dataset
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, PreTrainedTokenizerBase
 
 from gslm2.data.common.weighted_sampling import WeightedDistributedBatchSampler
 from gslm2.data.registry import resolve_manifest_uri
@@ -27,6 +27,11 @@ def _load_tokenizer(name_or_path: str):  # noqa: ANN202
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     return tokenizer
+
+
+def load_tokenizer(name_or_path: str) -> PreTrainedTokenizerBase:
+    """Load a HF tokenizer, defaulting a missing pad token to EOS."""
+    return _load_tokenizer(name_or_path)
 
 
 def _read_manifest_texts(manifest_path: str, text_key: str) -> list[str]:
@@ -60,7 +65,7 @@ class TextDataset(Dataset):
         self.max_length = data_cfg.max_length
         self.add_special_tokens = data_cfg.add_special_tokens
         self.task = data_cfg.task
-        self.tokenizer = _load_tokenizer(data_cfg.tokenizer)
+        self.tokenizer = load_tokenizer(data_cfg.tokenizer)
 
     def __len__(self) -> int:
         return len(self.texts)
