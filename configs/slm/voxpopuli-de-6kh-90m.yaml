@@ -1,0 +1,97 @@
+# Single-stream SLM (90M) on VoxPopuli German 6Kh, SpidR 2.0 layer-7 units.
+# Paper: 25k steps, 8 GPUs, peak LR 1e-2 (cosine, 1k warmup). Encoder checkpoint
+# below must be the VoxPopuli-de SpidR 2.0 model (see MODEL_ZOO.md).
+run:
+  workdir: /path/to/runs/slm-voxpopuli-de-6kh-90m
+  wandb_project: gslm2
+  wandb_name: slm-voxpopuli-de-6kh-90m-seed0
+  wandb_mode: offline
+  random_seed: 0
+  slurm_validation:
+    account: ACCOUNT  # set your Slurm account
+    nodes: 1
+    gpus_per_node: 1
+    cpus_per_task: 10
+    time: 60
+  slurm:
+    nodes: 1
+    gpus_per_node: 8
+    cpus_per_task: 16
+  log_interval: 100
+  save_interval: 1000
+  model_type: opt
+  keep_best_n: 1
+  keep_latest: 1
+
+data:
+  num_streams: 1
+  source:
+    audio:
+      manifest: /path/to/voxpopuli-de-6kh.csv
+      rand_crop: false  # deterministic crops; required for unit_cache_dir
+      normalize: true
+      max_sample_size: 960000  # 60 s @ 16 kHz
+      min_sample_size: 32000  # 2 s
+      max_batch_length: 93600000  # per-GPU audio samples ~= paper unit batch
+      num_workers: 8
+      pin_memory: true
+    feature_extraction:
+      checkpoint: /path/to/spidr2.0-seed0-final.pt  # see MODEL_ZOO.md
+      model_type: spidr
+      extract_layer: 7
+      codebook_size: 256
+      unit_offset: 2
+      deduplicate: true
+      max_token_seq_len: 2048
+      encoder_micro_batch: 10
+      dtype: float32
+      unit_cache_dir: /path/to/unit-cache/slm-voxpopuli-de-6kh-90m
+
+model:
+  vocab_size: 258  # 256 codes + PAD(0) + EOS(1)
+  model_dim: 768
+  num_layers: 12
+  num_attn_heads: 12
+  num_key_value_heads: 12
+  ffn_inner_dim: 3072
+  max_seq_len: 2049
+  pad_idx: 1
+  tie_word_embeddings: false
+  ffn_activation: relu
+  pos_embed_pad_offset: 2
+  init_scheme: standard
+
+optimizer:
+  lr: 0.01
+  betas: [0.9, 0.95]
+  eps: 1.0e-08
+  weight_decay: 0.1
+  max_norm: 0.5
+  dtype: bfloat16
+  scheduler: cosine
+  max_steps: 25000
+  warmup_steps: 1000
+  init_lr_scale: 1.0e-28
+  final_lr_scale: 0.1
+
+validation:
+  - eval_type: lm_loss
+    eval_name: lm-loss
+    eval_interval: 1000
+    config:
+      model_type: opt
+      lm_config: /path/to/gslm2/configs/slm/voxpopuli-de-6kh-90m.yaml  # this file
+      dev_manifest: /path/to/voxpopuli-de-dev.csv
+      score_batch_size: 512
+      unit_cache_dir: /path/to/unit-cache/loss-spidr2.0-seed0
+  - eval_type: slm
+    eval_name: slm-valid
+    eval_interval: 1000
+    config:
+      model_type: opt
+      lm_config: /path/to/gslm2/configs/slm/voxpopuli-de-6kh-90m.yaml  # this file
+      benchmarks: [tSC_dev_expanded, lexical_dev_invocab, lexical_dev_oov, syntactic_dev]
+      pairs_dir: /path/to/sLM21-pairs
+      max_pairs: 5000
+      batch_size: 512
+      unit_cache_dir: /path/to/unit-cache/pairs-spidr2.0-seed0

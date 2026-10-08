@@ -1,0 +1,41 @@
+# Duration predictor for single-stream SLMs (SpidR 2.0 layer-7 units).
+# Paper: Conformer (6 layers, dim 128, 4 heads, kernel 17, FFN 512),
+# trained on deduplicated LL-600h unit sequences, 25k steps, batch 64,
+# AdamW (0.9, 0.999), wd 1e-5, LR lin-warmup 1k to 3e-3 then lin-decay.
+# Extract the features first (see DATA.md); point train/valid_dirs at them.
+duration_predictor:
+  train_dirs:
+    - /path/to/feats/spidr2-l7-dedup/train
+  valid_dirs:
+    - /path/to/feats/spidr2-l7-dedup/valid
+  train_file_pattern: "small_segmented*.txt"
+  valid_file_pattern: "*.txt"
+  output_dir: /path/to/runs/duration-single
+
+  vocab_size: 256
+  num_streams: 1
+  max_duration: 50
+  log_duration: true
+  loss_type: classification
+  num_classes: 50
+
+  embed_dim: 128
+  hidden_dim: 128
+  num_layers: 6
+  dropout: 0.1
+
+  encoder_type: conformer
+  attention_heads: 4
+  conv_kernel: 17
+  ffn_expansion: 4
+
+  batch_size: 64
+  max_seq_len: 2048
+  num_workers: 4
+  max_steps: 25000
+  lr: 3e-3
+  weight_decay: 1e-5
+  warmup_steps: 1000
+  log_interval: 100
+  val_interval: 1000
+  seed: 0

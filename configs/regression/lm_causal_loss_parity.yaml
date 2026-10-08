@@ -1,0 +1,47 @@
+# Causal LM (OPT) loss-parity config — 50 steps for trajectory comparison.
+
+run:
+  workdir: ${METASR_REGRESSION_WORKDIR}
+  wandb_project: regression
+  wandb_name: lm_causal_loss_parity
+  wandb_mode: disabled
+  random_seed: 42
+  use_deterministic: true
+  log_interval: 1
+  save_interval: 50
+  keep_latest: 1
+  model_type: opt
+
+data:
+  manifests:
+    - ${METASR_REGRESSION_TEXT_MANIFEST}
+  manifests_weights: [1.0]
+  tokenizer: facebook/opt-125m
+  task: causal
+  max_length: 128
+  batch_size: 4
+  num_workers: 0
+  prefetch_factor: null
+  persistent_workers: false
+  pin_memory: false
+  random_seed: 42
+
+model:
+  model_dim: 64
+  max_seq_len: 128
+  vocab_size: 50272
+  num_layers: 2
+  num_attn_heads: 4
+  num_key_value_heads: 4
+  ffn_inner_dim: 128
+  dropout_p: 0.0
+
+optimizer:
+  lr: 1.0e-4
+  max_steps: 50
+  warmup_steps: 5
+  hold_steps: 5
+  decay_steps: 40
+  dtype: float32
+
+validation: []

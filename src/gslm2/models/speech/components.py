@@ -1,0 +1,1126 @@
+"""Adapted from torchaudio.
+
+See https://github.com/pytorch/audio/blob/main/src/torchaudio/models/wav2vec2/components.py
+"""
+
+import math
+from typing import Literal, NamedTuple
+
+import torch
+from torch import Tensor, nn
+from torch.nn import functional as F
+
+from gslm2.data.common.packing import stride_packed_residual, update_cu_seqlens_for_stride
+
+try:
+    from flash_attn.cute import flash_attn_varlen_func
+
+    HAS_FLASH_ATTN = True
+except ImportError:
+    try:
+        from flash_attn import flash_attn_varlen_func
+
+        HAS_FLASH_ATTN = True
+    except ImportError:
+        HAS_FLASH_ATTN = False
+
+if HAS_FLASH_ATTN:
+    import inspect
+
+    _FLASH_ATTN_HAS_DROPOUT = "dropout_p" in inspect.signature(flash_attn_varlen_func).parameters
+else:
+    _FLASH_ATTN_HAS_DROPOUT = False
+
+
+class LayerNorm(nn.LayerNorm):
+    """Layer norm with transpose."""
+
+    def forward(self, input: Tensor) -> Tensor:  # noqa: A002
+        x = input.transpose(-2, -1)
+        x = F.layer_norm(x, self.normalized_shape, self.weight, self.bias, self.eps)
+        return x.transpose(-2, -1)
+
+
+class ConvLayerBlock(nn.Module):
+    """Convolution unit of FeatureExtractor."""
+
+    def __init__(  # noqa: PLR0913
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int,
+        stride: int,
+        layer_norm: nn.Module | None,
+        *,
+        bias: bool,
+        causal: bool = False,
+    ) -> None:
+        super().__init__()
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.causal = causal
+        self.layer_norm = layer_norm
+        self.conv = nn.Conv1d(in_channels, out_channels, kernel_size, stride, bias=bias)
+        self.init_weights()
+
+    def init_weights(self) -> None:
+        nn.init.kaiming_normal_(self.conv.weight)
+
+    def forward(self, x: Tensor) -> Tensor:
+        if self.causal:
+            x = F.pad(x, (self.kernel_size - self.stride, 0))
+        x = self.conv(x)
+        if self.layer_norm is not None:
+            x = self.layer_norm(x)
+        return F.gelu(x)
+
+    def forward_channels_last(self, x: Tensor) -> Tensor:
+        """The same block over a [B, C, 1, T] channels-last tensor, without transpose copies.
+
+        Args:
+            x: [B, C_in, 1, T] in channels_last memory format.
+
+        Returns:
+            [B, C_out, 1, T'] in channels_last memory format.
+        """
+        if self.causal:
+            x = F.pad(x, (self.kernel_size - self.stride, 0, 0, 0))
+        weight = self.conv.weight.unsqueeze(2).to(memory_format=torch.channels_last)
+        x = F.conv2d(x, weight, self.conv.bias, stride=(1, self.stride))
+        if isinstance(self.layer_norm, LayerNorm):
+            # Channels are innermost here, so the permute is a view.
+            norm = self.layer_norm
+            y = F.layer_norm(x.permute(0, 2, 3, 1), norm.normalized_shape, norm.weight, norm.bias, norm.eps)
+            x = y.permute(0, 3, 1, 2)
+        elif self.layer_norm is not None:
+            x = self.layer_norm(x)
+        return F.gelu(x)
+
+
+class FeatureExtractor(nn.Module):
+    """Extract features from audio.
+
+    Args:
+        conv_layers: the ConvLayerBlock stack.
+        channels_last: hold activations with channels innermost. LayerNorm becomes a view
+            rather than transposes, and cuDNN skips conversions.
+    """
+
+    def __init__(self, conv_layers: nn.ModuleList, *, channels_last: bool = True) -> None:
+        super().__init__()
+        self.conv_layers = conv_layers
+        self.channels_last = channels_last
+
+    def forward(self, x: Tensor) -> Tensor:
+        if self.channels_last:
+            x = x[:, None, None, :].to(memory_format=torch.channels_last)  # (batch, 1, 1, sample)
+            for layer in self.conv_layers:
+                x = layer.forward_channels_last(x)  # (batch, feature, 1, frame)
+            return x.permute(0, 2, 3, 1).reshape(x.shape[0], x.shape[3], x.shape[1])
+
+        x = x.unsqueeze(1)  # (batch, channel==1, frame)
+        for layer in self.conv_layers:
+            x = layer(x)  # (batch, feature, frame)
+        return x.transpose(1, 2)  # (batch, frame, feature)
+
+
+class FeatureProjection(nn.Module):
+    """Projects features to encoder dimension."""
+
+    def __init__(self, in_features: int, out_features: int) -> None:
+        super().__init__()
+        self.layer_norm = nn.LayerNorm(in_features)
+        self.projection = nn.Linear(in_features, out_features)
+
+    def forward(self, x: Tensor) -> Tensor:
+        x = self.layer_norm(x)
+        return self.projection(x)
+
+
+class ConvPositionalEmbedding(nn.Module):
+    """Positional embedding which is placed at the beginning of Transformer.
+
+    Args:
+        causal: pads the sequences on the left by kernel_size - stride
+        lookahead: when causal=True, allows for a given lookahead of k frames
+    """
+
+    def __init__(  # noqa: PLR0913
+        self,
+        embed_dim: int,
+        kernel_size: int,
+        groups: int,
+        depth: int,
+        *,
+        causal: bool = False,
+        lookahead: int = 0,
+    ) -> None:
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.kernel_size = kernel_size
+        self.groups = groups
+        self.depth = depth
+        self.causal = causal
+        self.lookahead = lookahead
+        self.layer_kernel_size = max(3, kernel_size // depth)
+        self.layer_norm = LayerNorm(embed_dim, elementwise_affine=False)
+
+        k = self.layer_kernel_size
+        if causal:
+            if not 0 <= lookahead <= k - 1:
+                raise ValueError(f"lookahead must be in [0, {k - 1}], got {lookahead}")
+            self.left_pad = k - 1 - lookahead
+            self.right_pad = lookahead
+        else:
+            if lookahead != 0:
+                raise ValueError("lookahead is only meaningful when causal=True")
+            self.left_pad = k // 2
+            self.right_pad = k // 2 - (1 if k % 2 == 0 else 0)
+
+        self.convs = nn.ModuleList(
+            [nn.Conv1d(embed_dim, embed_dim, k, padding=0, groups=groups) for _ in range(depth)]
+        )
+
+    def forward(
+        self,
+        x: Tensor,
+        attention_mask: Tensor | None = None,
+        cu_seqlens: Tensor | None = None,
+    ) -> Tensor:
+        if cu_seqlens is not None:
+            # Per-segment conv to avoid cross-segment contamination across the ~91-frame RF.
+            assert x.shape[0] == 1, f"packed pos-conv expects a batch of 1, got {x.shape[0]}"
+            x_2d = x.squeeze(0)
+            num_segments = cu_seqlens.shape[0] - 1
+            segments_out = []
+            for s in range(num_segments):
+                start = int(cu_seqlens[s].item())
+                end = int(cu_seqlens[s + 1].item())
+                seg = x_2d[start:end, :].unsqueeze(0).transpose(-2, -1)
+                for conv in self.convs:
+                    seg = F.pad(seg, (self.left_pad, self.right_pad))
+                    seg = conv(seg)
+                    seg = self.layer_norm(seg)
+                    seg = F.gelu(seg)
+                segments_out.append(seg.transpose(-2, -1).squeeze(0))
+            return torch.cat(segments_out, dim=0).unsqueeze(0)
+
+        mask = (
+            torch.ones_like(x, dtype=torch.bool).transpose(-2, -1)
+            if attention_mask is None
+            else attention_mask[:, :, 0]
+        )
+        x = x.transpose(-2, -1)
+        for conv in self.convs:
+            x = x * mask
+            x = F.pad(x, (self.left_pad, self.right_pad))
+            x = conv(x)
+            x = self.layer_norm(x)
+            x = F.gelu(x)
+        x = x * mask
+        return x.transpose(-2, -1)
+
+
+def rope_cos_sin(
+    seq_len: int, head_dim: int, theta: float, device: torch.device, dtype: torch.dtype
+) -> tuple[Tensor, Tensor]:
+    """RoPE rotation tables, one [seq_len, head_dim // 2] cos/sin pair."""
+    if head_dim % 2 != 0:
+        raise ValueError(f"RoPE needs even head_dim, got {head_dim}")
+    i = torch.arange(head_dim // 2, device=device, dtype=torch.float32)
+    freqs = 1.0 / (theta ** (i * 2 / head_dim))
+    t = torch.arange(seq_len, device=device, dtype=torch.float32)
+    angles = torch.outer(t, freqs)
+    return angles.cos().to(dtype), angles.sin().to(dtype)
+
+
+def apply_rope(x: Tensor, cos: Tensor, sin: Tensor) -> Tensor:
+    """Rotate [B, H, T, D] queries/keys by [T, D // 2] cos/sin tables."""
+    cos = cos[None, None, :, :]
+    sin = sin[None, None, :, :]
+    x1, x2 = x.chunk(2, dim=-1)
+    return torch.cat([x1 * cos - x2 * sin, x2 * cos + x1 * sin], dim=-1)
+
+
+def alibi_slopes(num_heads: int) -> list[float]:
+    """Per-head ALiBi slopes, geometric sequence like the paper."""
+
+    def _pow2_slopes(n: int) -> list[float]:
+        return [2.0 ** (-8.0 / n * (i + 1)) for i in range(n)]
+
+    if num_heads < 1:
+        raise ValueError(f"num_heads must be >= 1, got {num_heads}")
+    closest = 2 ** math.floor(math.log2(num_heads))
+    slopes = _pow2_slopes(closest)
+    if closest != num_heads:
+        slopes += _pow2_slopes(2 * closest)[0::2][: num_heads - closest]
+    return slopes
+
+
+def alibi_bias(num_heads: int, seq_len: int, device: torch.device, dtype: torch.dtype, *, causal: bool) -> Tensor:
+    """Static [1, H, T, T] ALiBi bias: -slope * |i - j|, future -inf when causal."""
+    slopes = torch.tensor(alibi_slopes(num_heads), device=device, dtype=torch.float32)
+    pos = torch.arange(seq_len, device=device, dtype=torch.float32)
+    dist = pos[:, None] - pos[None, :]
+    if causal:
+        bias = -slopes[:, None, None] * dist.clamp(min=0)[None, :, :]
+        future = (dist < 0).unsqueeze(0).expand(num_heads, seq_len, seq_len)
+        bias = bias.masked_fill(future, float("-inf"))
+    else:
+        bias = -slopes[:, None, None] * dist.abs()[None, :, :]
+    return bias[None].to(dtype)
+
+
+class SelfAttention(nn.Module):
+    """Multihead Self Attention module."""
+
+    def __init__(  # noqa: PLR0913
+        self,
+        embed_dim: int,
+        num_heads: int,
+        *,
+        qkv_bias: bool,
+        dropout: float = 0.0,
+        is_causal: bool = False,
+        rope: bool = False,
+        rope_theta: float = 10000.0,
+        attention_bias: Literal["none", "alibi"] = "none",
+    ) -> None:
+        super().__init__()
+        if embed_dim % num_heads != 0:
+            raise ValueError(f"embed_dim ({embed_dim}) must be divisible by num_heads ({num_heads})")
+        if attention_bias not in ("none", "alibi"):
+            raise ValueError(f"Unknown attention_bias {attention_bias!r}.")
+
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.dropout = dropout
+        self.is_causal = is_causal
+        self.rope = rope
+        self.rope_theta = rope_theta
+        self.attention_bias = attention_bias
+        self.qkv = nn.Linear(embed_dim, embed_dim * 3, bias=qkv_bias)
+        self.proj = nn.Linear(embed_dim, embed_dim, bias=True)
+
+    def forward_packed(
+        self,
+        x: Tensor,
+        cu_seqlens: Tensor,
+        max_seqlen: int | None,
+        dropout: float,
+    ) -> Tensor:
+        """Attend within each segment of a packed (1, total_tokens, embed_dim) sequence."""
+        assert x.shape[0] == 1, f"packed attention expects a batch of 1, got {x.shape[0]}"
+
+        if self.rope or self.attention_bias != "none":
+            raise RuntimeError(
+                "RoPE/ALiBi are not implemented for the packed attention path. "
+                "Set data.sampler_type to something other than 'packing'."
+            )
+
+        if self.is_causal:
+            raise RuntimeError(
+                "Causal attention is not implemented for the packed attention path. "
+                "Set data.sampler_type to something other than 'packing' for causal runs, "
+                "or implement segment-wise causal masking in forward_packed."
+            )
+
+        use_flash = HAS_FLASH_ATTN and x.is_cuda
+        if use_flash and dropout > 0.0 and not _FLASH_ATTN_HAS_DROPOUT:
+            # Subbing output dropout changes regularizer, dense fallback ~48x slower than fa4, have to refuse
+            raise RuntimeError(
+                f"Packed attention with attention dropout (p={dropout}) requires a flash-attn "
+                "build exposing dropout_p; this build does not. Set encoder_attention_dropout=0.0 "
+                "for packed runs, or install a flash-attn build with dropout support."
+            )
+
+        if use_flash:
+            total_tokens = x.shape[1]
+            x_2d = x.squeeze(0)
+
+            head_dim = self.embed_dim // self.num_heads
+            qkv = self.qkv(x_2d).reshape(total_tokens, 3, self.num_heads, head_dim)
+            q, k, v = qkv.unbind(1)
+
+            orig_dtype = q.dtype
+            if q.dtype == torch.float32:
+                q, k, v = q.half(), k.half(), v.half()
+            flash_kwargs = {
+                "cu_seqlens_q": cu_seqlens.to(q.device),
+                "cu_seqlens_k": cu_seqlens.to(q.device),
+                "max_seqlen_q": max_seqlen,
+                "max_seqlen_k": max_seqlen,
+                "causal": False,
+            }
+            if _FLASH_ATTN_HAS_DROPOUT:
+                flash_kwargs["dropout_p"] = dropout
+            out = flash_attn_varlen_func(q, k, v, **flash_kwargs)
+            if isinstance(out, tuple):
+                out = out[0]
+            out = out.to(orig_dtype).reshape(total_tokens, self.embed_dim)
+            return self.proj(out.unsqueeze(0))
+
+        batch, seq, dim = x.shape
+        qkv = self.qkv(x)
+        q, k, v = qkv.split(self.embed_dim, dim=2)
+        k = k.view(batch, seq, self.num_heads, dim // self.num_heads).transpose(1, 2)
+        q = q.view(batch, seq, self.num_heads, dim // self.num_heads).transpose(1, 2)
+        v = v.view(batch, seq, self.num_heads, dim // self.num_heads).transpose(1, 2)
+        seg_ids = torch.zeros(seq, dtype=torch.long, device=x.device)
+        for s in range(cu_seqlens.shape[0] - 1):
+            start = int(cu_seqlens[s].item())
+            end = int(cu_seqlens[s + 1].item())
+            seg_ids[start:end] = s
+        block_mask = (seg_ids.unsqueeze(0) == seg_ids.unsqueeze(1))[None, None, :, :]
+        x = F.scaled_dot_product_attention(q, k, v, attn_mask=block_mask, dropout_p=dropout)
+        x = x.transpose(1, 2).contiguous().view(batch, seq, dim)
+        return self.proj(x)
+
+    def forward(
+        self,
+        x: Tensor,
+        attention_mask: Tensor | None = None,
+        cu_seqlens: Tensor | None = None,
+        max_seqlen: int | None = None,
+    ) -> Tensor:
+        dropout = self.dropout if self.training else 0.0
+
+        if cu_seqlens is not None:
+            return self.forward_packed(x, cu_seqlens, max_seqlen, dropout)
+
+        batch, seq, dim = x.shape
+        qkv = self.qkv(x)
+        q, k, v = qkv.split(self.embed_dim, dim=2)
+        head_dim = dim // self.num_heads
+        k = k.view(batch, seq, self.num_heads, head_dim).transpose(1, 2)
+        q = q.view(batch, seq, self.num_heads, head_dim).transpose(1, 2)
+        v = v.view(batch, seq, self.num_heads, head_dim).transpose(1, 2)
+        if self.rope:
+            cos, sin = rope_cos_sin(seq, head_dim, self.rope_theta, q.device, q.dtype)
+            q = apply_rope(q, cos, sin)
+            k = apply_rope(k, cos, sin)
+        if self.attention_bias == "alibi":
+            bias = alibi_bias(self.num_heads, seq, q.device, q.dtype, causal=self.is_causal)
+            if attention_mask is not None:
+                bias = bias.expand(batch, -1, -1, -1).masked_fill(~attention_mask, float("-inf"))
+            attention_mask = bias
+        elif self.is_causal:
+            causal_mask = torch.tril(torch.ones(seq, seq, device=q.device, dtype=torch.bool))[None, None, :, :]
+            attention_mask = causal_mask if attention_mask is None else attention_mask & causal_mask
+        x = F.scaled_dot_product_attention(q, k, v, attn_mask=attention_mask, dropout_p=dropout)
+        x = x.transpose(1, 2).contiguous().view(batch, seq, dim)
+        return self.proj(x)
+
+
+class ConformerConvolutionModule(nn.Module):
+    """Conformer Convolution Module."""
+
+    def __init__(self, embed_dim: int, kernel_size: int, stride: int) -> None:
+        super().__init__()
+        assert kernel_size % 2 == 1
+        self.stride = stride
+
+        self.pointwise_conv1 = nn.Conv1d(
+            embed_dim,
+            2 * embed_dim,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+        )
+        self.depthwise_conv = nn.Conv1d(
+            embed_dim,
+            embed_dim,
+            kernel_size,
+            stride=stride,
+            padding=(kernel_size - 1) // 2,
+            groups=embed_dim,
+        )
+        self.norm = nn.BatchNorm1d(embed_dim)
+        self.pointwise_conv2 = nn.Conv1d(
+            embed_dim,
+            embed_dim,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+        )
+
+    def forward(
+        self,
+        x: Tensor,
+        attention_mask: Tensor | None = None,
+        cu_seqlens: Tensor | None = None,
+    ) -> Tensor:
+        if cu_seqlens is not None:
+            assert x.shape[0] == 1, f"packed convolution expects a batch of 1, got {x.shape[0]}"
+            x_2d = x.squeeze(0)
+            num_segments = cu_seqlens.shape[0] - 1
+            segments_out = []
+            for s in range(num_segments):
+                start = int(cu_seqlens[s].item())
+                end = int(cu_seqlens[s + 1].item())
+                seg = x_2d[start:end, :].unsqueeze(0).transpose(1, 2)
+                seg = self.pointwise_conv1(seg)
+                seg = F.glu(seg, dim=1)
+                seg = self.depthwise_conv(seg)
+                seg = self.norm(seg)
+                seg = F.silu(seg)
+                seg = self.pointwise_conv2(seg)
+                segments_out.append(seg.transpose(1, 2).squeeze(0))
+            return torch.cat(segments_out, dim=0).unsqueeze(0)
+
+        # x: (batch, seq_len, embed_dim)
+        # attention_mask: (batch, 1, seq_len, seq_len) bool - True for VALID, False for MASKED
+
+        # Create padding mask from attention_mask if provided
+        # padding_mask: (batch, 1, seq_len) - True for valid positions, False for padding
+        # Extract the first row to get a 1D mask per sample: (batch, 1, seq_len)
+        # attention_mask is True for valid positions, so use it directly
+        padding_mask = attention_mask[:, :, 0] if attention_mask is not None else None
+
+        x = x.transpose(1, 2)  # (batch, embed_dim, seq_len)
+
+        # Zero out padding before pointwise conv
+        if padding_mask is not None:
+            x = x * padding_mask
+
+        x = self.pointwise_conv1(x)
+        x = F.glu(x, dim=1)
+
+        # Zero out padding before depthwise conv (the conv that causes boundary effects)
+        if padding_mask is not None:
+            x = x * padding_mask
+
+        x = self.depthwise_conv(x)
+        x = F.silu(x)
+
+        # After strided depthwise conv, need to update padding mask
+        if padding_mask is not None and self.stride > 1:
+            padding_mask = padding_mask[:, :, :: self.stride]
+            # Ensure mask matches output length
+            padding_mask = padding_mask[:, :, : x.size(2)]
+
+        # Zero out padding before final pointwise conv
+        if padding_mask is not None:
+            x = x * padding_mask
+
+        x = self.pointwise_conv2(x)
+
+        return x.transpose(1, 2)
+
+
+class SupervisedClassifier(nn.Module):
+    """Layer that follows attention layer in encoder layer."""
+
+    def __init__(self, embed_dim: int, output_dim: int, num_layers: int) -> None:
+        super().__init__()
+        self.layers = nn.ModuleList()
+        for _ in range(num_layers - 1):
+            self.layers.append(torch.nn.Linear(embed_dim, embed_dim))
+        self.output_layer = torch.nn.Linear(embed_dim, output_dim)
+
+    def forward(self, x: Tensor) -> Tensor:
+        for layer in self.layers:
+            x = layer(x)
+            x = F.gelu(x)
+        return self.output_layer(x)
+
+
+class FeedForward(nn.Module):
+    """Layer that follows attention layer in encoder layer."""
+
+    def __init__(self, embed_dim: int, interm_features: int, interm_dropout: float) -> None:
+        super().__init__()
+        self.intermediate_dense = nn.Linear(embed_dim, interm_features)
+        self.intermediate_dropout = nn.Dropout(interm_dropout)
+        self.output_dense = nn.Linear(interm_features, embed_dim)
+
+    def forward(self, x: Tensor) -> Tensor:
+        x = self.intermediate_dense(x)
+        x = F.gelu(x)
+        x = self.intermediate_dropout(x)
+        return self.output_dense(x)
+
+
+class TransformerLayer(nn.Module):
+    """Combines multihead self attention and feed forward."""
+
+    def __init__(
+        self, attention: SelfAttention, dropout: float, feed_forward: FeedForward, *, layer_norm_first: bool
+    ) -> None:
+        super().__init__()
+        self.attention = attention
+        self.dropout = nn.Dropout(dropout)
+        self.layer_norm = nn.LayerNorm(attention.embed_dim)
+        self.layer_norm_first = layer_norm_first
+        self.feed_forward = feed_forward
+        self.final_layer_norm = nn.LayerNorm(attention.embed_dim)
+
+    def forward(
+        self,
+        x: Tensor,
+        attention_mask: Tensor | None = None,
+        cu_seqlens: Tensor | None = None,
+        max_seqlen: int | None = None,
+    ) -> tuple[Tensor, Tensor | None]:
+        residual = x
+
+        if self.layer_norm_first:
+            x = self.layer_norm(x)
+
+        x = self.attention(x, attention_mask=attention_mask, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen)
+        x = self.dropout(x)
+        x = residual + x
+
+        if self.layer_norm_first:
+            residual = x
+            layer_result = self.feed_forward(self.final_layer_norm(x))
+            x = self.dropout(layer_result)
+            x = residual + x
+        else:
+            x = self.layer_norm(x)
+            residual = x
+            layer_result = self.feed_forward(x)
+            x = self.dropout(layer_result)
+            x = self.final_layer_norm(residual + x)
+        return x, layer_result
+
+
+class ConformerLayer(nn.Module):
+    """Combines multihead self attention, feed forward, and convolution module."""
+
+    def __init__(  # noqa: PLR0913
+        self,
+        feed_forward1: FeedForward,
+        attention: SelfAttention,
+        convolution: ConformerConvolutionModule,
+        feed_forward2: FeedForward,
+        dropout: float,
+        *,
+        layer_norm_first: bool,
+    ) -> None:
+        super().__init__()
+        embed_dim = attention.embed_dim
+
+        self.feed_forward1 = feed_forward1
+        self.norm_ff1 = nn.LayerNorm(embed_dim)
+
+        self.attention = attention
+        self.norm_attn = nn.LayerNorm(embed_dim)
+
+        self.convolution = convolution
+        self.norm_conv = nn.LayerNorm(embed_dim)
+
+        self.feed_forward2 = feed_forward2
+        self.norm_ff2 = nn.LayerNorm(embed_dim)
+
+        self.dropout = nn.Dropout(dropout)
+
+        self.layer_norm_first = layer_norm_first
+
+    def forward(  # noqa: C901
+        self,
+        x: Tensor,
+        attention_mask: Tensor | None = None,
+        cu_seqlens: Tensor | None = None,
+        max_seqlen: int | None = None,
+    ) -> tuple[Tensor, Tensor | None]:
+        # feed-forward
+        residual = x
+        if self.layer_norm_first:
+            x = self.norm_ff1(x)
+        x = residual + 0.5 * self.dropout(self.feed_forward1(x))
+        if not self.layer_norm_first:
+            x = self.norm_ff1(x)
+
+        # self-attention
+        residual = x
+        if self.layer_norm_first:
+            x = self.norm_attn(x)
+        x = residual + self.dropout(
+            self.attention(x, attention_mask=attention_mask, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen)
+        )
+        if not self.layer_norm_first:
+            x = self.norm_attn(x)
+
+        # convolution
+        residual = x
+        if self.layer_norm_first:
+            x = self.norm_conv(x)
+        x = self.convolution(x, attention_mask=attention_mask, cu_seqlens=cu_seqlens)
+
+        if self.convolution.stride == 1:
+            # standard conformer
+            x = residual + self.dropout(x)
+        else:
+            # conformer with downsampling
+            if cu_seqlens is not None:
+                residual = stride_packed_residual(residual, cu_seqlens, self.convolution.stride)
+                cu_seqlens, max_seqlen = update_cu_seqlens_for_stride(cu_seqlens, self.convolution.stride)
+            else:
+                residual = residual[:, :: self.convolution.stride, :]
+            common_len = min(x.size(1), residual.size(1))
+            x = residual[:, :common_len, :] + self.dropout(x[:, :common_len, :])
+
+        if not self.layer_norm_first:
+            x = self.norm_conv(x)
+
+        # feed-forward
+        residual = x
+        if self.layer_norm_first:
+            x = self.norm_ff2(x)
+        layer_result = self.feed_forward2(x)
+        x = residual + 0.5 * self.dropout(layer_result)
+        if not self.layer_norm_first:
+            x = self.norm_ff2(x)
+
+        return x, layer_result
+
+
+class RMSNorm(nn.Module):
+    """Root-mean-square norm, no centering."""
+
+    def __init__(self, dim: int, eps: float = 1e-6) -> None:
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(dim))
+
+    def forward(self, x: Tensor) -> Tensor:
+        return x * torch.rsqrt(x.pow(2).mean(dim=-1, keepdim=True) + self.eps) * self.weight
+
+
+class FrontEMA(nn.Module):
+    """Per-channel leaky integrator: h_t = a*h_{t-1} + (1-a)*x_t. Streams with O(D) state."""
+
+    def __init__(self, dim: int, init_alpha: float = 0.5) -> None:
+        super().__init__()
+        self.alpha_logit = nn.Parameter(torch.full((dim,), math.log(init_alpha / (1 - init_alpha))))
+
+    def forward(self, x: Tensor, valid: Tensor | None = None, state: Tensor | None = None) -> tuple[Tensor, Tensor]:
+        a = torch.sigmoid(self.alpha_logit).to(dtype=x.dtype)
+        h = state.to(dtype=x.dtype) if state is not None else x[:, 0]
+        ys = []
+        for t in range(x.shape[1]):
+            new = a * h + (1.0 - a) * x[:, t]
+            if valid is not None:
+                v = valid[:, t].unsqueeze(-1)
+                h = torch.where(v, new, h)
+                ys.append(torch.where(v, h, torch.zeros_like(h)))
+            else:
+                h = new
+                ys.append(h)
+        return torch.stack(ys, dim=1), h
+
+
+class FrontLocalAttn(nn.Module):
+    """One causal sliding-window self-attention block. Streams with a W-frame ring buffer."""
+
+    def __init__(self, dim: int, num_heads: int, window: int, *, qkv_bias: bool, dropout: float = 0.0) -> None:
+        super().__init__()
+        if dim % num_heads != 0:
+            raise ValueError(f"dim ({dim}) must be divisible by num_heads ({num_heads})")
+        if window < 1:
+            raise ValueError(f"window must be >= 1, got {window}")
+        self.num_heads = num_heads
+        self.window = window
+        self.norm = nn.LayerNorm(dim)
+        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.proj = nn.Linear(dim, dim, bias=True)
+        self.drop = nn.Dropout(dropout)
+
+    def forward(self, x: Tensor, attention_mask: Tensor | None = None) -> Tensor:
+        batch, seq, dim = x.shape
+        head_dim = dim // self.num_heads
+        qkv = self.qkv(self.norm(x))
+        q, k, v = qkv.split(dim, dim=2)
+        q = q.view(batch, seq, self.num_heads, head_dim).transpose(1, 2)
+        k = k.view(batch, seq, self.num_heads, head_dim).transpose(1, 2)
+        v = v.view(batch, seq, self.num_heads, head_dim).transpose(1, 2)
+        pos = torch.arange(seq, device=x.device)
+        lag = pos[:, None] - pos[None, :]
+        window_mask = ((lag >= 0) & (lag < self.window))[None, None, :, :]
+        mask = window_mask if attention_mask is None else window_mask & attention_mask
+        y = F.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0)
+        y = y.transpose(1, 2).contiguous().view(batch, seq, dim)
+        return x + self.drop(self.proj(y))
+
+
+class SpeechFrontEnd(nn.Module):
+    """Streamable front: optional RMSNorm -> EMA -> causal window-attn, before Transformer layers."""
+
+    def __init__(  # noqa: PLR0913
+        self,
+        dim: int,
+        *,
+        norm: Literal["none", "rmsnorm"],
+        ema: bool,
+        local_attn: bool,
+        local_attn_window: int,
+        num_heads: int,
+        qkv_bias: bool,
+        dropout: float = 0.0,
+    ) -> None:
+        super().__init__()
+        self.norm: RMSNorm | None = RMSNorm(dim) if norm == "rmsnorm" else None
+        self.ema: FrontEMA | None = FrontEMA(dim) if ema else None
+        self.local_attn: FrontLocalAttn | None = (
+            FrontLocalAttn(dim, num_heads, local_attn_window, qkv_bias=qkv_bias, dropout=dropout)
+            if local_attn
+            else None
+        )
+
+    @property
+    def needs_dense(self) -> bool:
+        return self.ema is not None or self.local_attn is not None
+
+    def forward(self, x: Tensor, attention_mask: Tensor | None = None) -> Tensor:
+        if self.norm is not None:
+            x = self.norm(x)
+        if self.ema is not None:
+            valid = attention_mask[:, 0, 0, :] if attention_mask is not None else None
+            x, _ = self.ema(x, valid)
+        if self.local_attn is not None:
+            x = self.local_attn(x, attention_mask)
+        return x
+
+
+class Transformer(nn.Module):
+    """Transformer module with positional convolutional embeddings."""
+
+    def __init__(  # noqa: PLR0913
+        self,
+        layers: nn.ModuleList,
+        pos_conv_embed: ConvPositionalEmbedding | None,
+        dropout: float,
+        layer_drop: float,
+        *,
+        layer_norm_first: bool,
+        embed_dim: int,
+        front_end: SpeechFrontEnd | None = None,
+    ) -> None:
+        super().__init__()
+        self.pos_conv_embed = pos_conv_embed
+        self.front_end = front_end
+        self.layer_norm = nn.LayerNorm(embed_dim)
+        self.layer_norm_first = layer_norm_first
+        self.layer_drop = layer_drop
+        self.dropout = nn.Dropout(dropout)
+        self.layers = layers
+        self.apply(self.init_weights)
+
+    def init_weights(self, module: nn.Module) -> None:
+        if isinstance(module, SelfAttention):
+            nn.init.xavier_uniform_(module.qkv.weight, gain=1 / math.sqrt(2))
+            nn.init.xavier_uniform_(module.proj.weight)
+            nn.init.constant_(module.proj.bias, 0.0)
+        elif isinstance(module, nn.Linear):
+            nn.init.normal_(module.weight, std=0.02)
+            if module.bias is not None:
+                nn.init.constant_(module.bias, 0)
+
+    def _apply_front(self, x: Tensor, attention_mask: Tensor | None, cu_seqlens: Tensor | None) -> Tensor:
+        if self.front_end is None:
+            return x
+        if cu_seqlens is not None and self.front_end.needs_dense:
+            raise RuntimeError("Streamable front-end needs dense layout, not packing.")
+        return self.front_end(x, attention_mask)
+
+    def forward(
+        self,
+        x: Tensor,
+        attention_mask: Tensor | None = None,
+        cu_seqlens: Tensor | None = None,
+        max_seqlen: int | None = None,
+    ) -> Tensor:
+        if self.pos_conv_embed is not None:
+            x = x + self.pos_conv_embed(x, attention_mask, cu_seqlens=cu_seqlens)
+        x = self._apply_front(x, attention_mask, cu_seqlens)
+        if self.layer_norm_first:
+            x = self.layer_norm(x)
+        x = self.dropout(x)
+        for layer in self.layers:
+            if not (self.training and torch.rand(1) < self.layer_drop):
+                x, _ = layer(x, attention_mask, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen)
+        if not self.layer_norm_first:
+            x = self.layer_norm(x)
+        return x
+
+    def get_intermediate_outputs(
+        self,
+        x: Tensor,
+        attention_mask: Tensor | None = None,
+        num_layers: int | None = None,
+        cu_seqlens: Tensor | None = None,
+        max_seqlen: int | None = None,
+    ) -> tuple[list[Tensor], Tensor]:
+        if num_layers is not None and not 0 < num_layers <= len(self.layers):
+            exception = f"`num_layers` must be between [1, {len(self.layers)}]"
+            raise ValueError(exception)
+
+        ret: list[Tensor] = []
+        if self.pos_conv_embed is not None:
+            x = x + self.pos_conv_embed(x, attention_mask, cu_seqlens=cu_seqlens)
+        x = self._apply_front(x, attention_mask, cu_seqlens)
+        if self.layer_norm_first:
+            x = self.layer_norm(x)
+        x = self.dropout(x)
+        for layer in self.layers:
+            x_output, layer_result = layer(x, attention_mask, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen)
+            if not (self.training and torch.rand(1) < self.layer_drop):
+                if isinstance(layer, ConformerLayer) and attention_mask is not None:
+                    attention_mask = attention_mask[..., :: layer.convolution.stride, :: layer.convolution.stride]
+                    attention_mask = attention_mask[..., : x_output.size(1), : x_output.size(1)]
+                if isinstance(layer, ConformerLayer) and layer.convolution.stride > 1 and cu_seqlens is not None:
+                    cu_seqlens, max_seqlen = update_cu_seqlens_for_stride(cu_seqlens, layer.convolution.stride)
+                x = x_output.clone()
+            ret.append(layer_result)
+            if num_layers is not None and len(ret) >= num_layers:
+                return ret, x
+        return ret, x
+
+
+def get_feature_extractor(
+    norm_mode: Literal["group_norm", "layer_norm"],
+    shapes: list[tuple[int, int, int]],
+    *,
+    bias: bool,
+    causal: bool = False,
+    channels_last: bool = True,
+) -> FeatureExtractor:
+    """Get convolutional feature extractor."""
+    if norm_mode not in ["group_norm", "layer_norm"]:
+        raise ValueError(norm_mode)
+    blocks: list[nn.Module] = []
+    in_channels = 1
+    for i, (out_channels, kernel_size, stride) in enumerate(shapes):
+        normalization: nn.Module | None = None
+        if norm_mode == "group_norm" and i == 0:
+            normalization = nn.GroupNorm(num_groups=out_channels, num_channels=out_channels, affine=True)
+        elif norm_mode == "layer_norm":
+            normalization = LayerNorm(normalized_shape=out_channels, elementwise_affine=True)
+        blocks.append(
+            ConvLayerBlock(in_channels, out_channels, kernel_size, stride, normalization, bias=bias, causal=causal)
+        )
+        in_channels = out_channels
+    return FeatureExtractor(nn.ModuleList(blocks), channels_last=channels_last)
+
+
+def get_encoder(  # noqa: PLR0913
+    in_features: int,
+    embed_dim: int,
+    pos_conv_kernel: int,
+    pos_conv_groups: int,
+    pos_conv_depth: int,
+    num_layers: int,
+    num_heads: int,
+    attention_dropout: float,
+    ff_interm_features: int,
+    ff_interm_dropout: float,
+    dropout: float,
+    layer_drop: float,
+    *,
+    layer_norm_first: bool,
+    qkv_bias: bool,
+    causal: bool = False,  # Controls main causality, if True then both PE and attention are causal
+    pe_lookahead: int = 0,  # Allows to add lookahead to the PE
+    causal_attention: bool | None = None,  # Allows to control for causal attention in the transformer layers
+    disable_pos_conv: bool = False,  # If True, skip ConvPos entirely (pos_conv_embed=None)
+    rope: bool = False,
+    rope_theta: float = 10000.0,
+    attention_bias: Literal["none", "alibi"] = "none",
+    front_ema: bool = False,
+    front_local_attn: bool = False,
+    front_local_attn_window: int = 128,
+    front_norm: Literal["none", "rmsnorm"] = "none",
+    conformer_layer_indices: list[int] | None = None,
+    conformer_kernel_sizes: list[int] | None = None,
+    conformer_strides: list[int] | None = None,
+) -> tuple[FeatureProjection, Transformer]:
+    """Build Transformer encoder."""
+
+    if causal_attention is None:
+        causal_attention = causal
+    feature_projection = FeatureProjection(in_features, embed_dim)
+    pos_conv = (
+        None
+        if disable_pos_conv
+        else ConvPositionalEmbedding(
+            embed_dim, pos_conv_kernel, pos_conv_groups, pos_conv_depth, causal=causal, lookahead=pe_lookahead
+        )
+    )
+    want_front = front_ema or front_local_attn or front_norm != "none"
+    if not disable_pos_conv and want_front:
+        raise ValueError("ConvPos and streamable front-end are mutually exclusive.")
+    front_end = (
+        SpeechFrontEnd(
+            embed_dim,
+            norm=front_norm,
+            ema=front_ema,
+            local_attn=front_local_attn,
+            local_attn_window=front_local_attn_window,
+            num_heads=num_heads,
+            qkv_bias=qkv_bias,
+            dropout=dropout,
+        )
+        if want_front
+        else None
+    )
+    layers = nn.ModuleList()
+    for layer_idx in range(num_layers):
+        if conformer_layer_indices is not None and layer_idx + 1 in conformer_layer_indices:
+            conformer_index = conformer_layer_indices.index(layer_idx + 1)
+            layers.append(
+                ConformerLayer(
+                    FeedForward(embed_dim, ff_interm_features, ff_interm_dropout),
+                    SelfAttention(
+                        embed_dim,
+                        num_heads,
+                        qkv_bias=qkv_bias,
+                        dropout=attention_dropout,
+                        is_causal=causal_attention,
+                        rope=rope,
+                        rope_theta=rope_theta,
+                        attention_bias=attention_bias,
+                    ),
+                    ConformerConvolutionModule(
+                        embed_dim,
+                        conformer_kernel_sizes[conformer_index],
+                        conformer_strides[conformer_index],
+                    ),
+                    FeedForward(embed_dim, ff_interm_features, ff_interm_dropout),
+                    dropout,
+                    layer_norm_first=layer_norm_first,
+                )
+            )
+        else:
+            attention = SelfAttention(
+                embed_dim,
+                num_heads,
+                qkv_bias=qkv_bias,
+                dropout=attention_dropout,
+                is_causal=causal_attention,
+                rope=rope,
+                rope_theta=rope_theta,
+                attention_bias=attention_bias,
+            )
+            feed_forward = FeedForward(embed_dim, ff_interm_features, ff_interm_dropout)
+            layers.append(TransformerLayer(attention, dropout, feed_forward, layer_norm_first=layer_norm_first))
+    transformer = Transformer(
+        layers,
+        pos_conv,
+        dropout,
+        layer_drop,
+        layer_norm_first=not layer_norm_first,
+        embed_dim=embed_dim,
+        front_end=front_end,
+    )
+    return feature_projection, transformer
+
+
+class _UnitWeightNorm(nn.Module):
+    """Weight normalization with fixed g=1 (unit norm rows)."""
+
+    def forward(self, weight: Tensor) -> Tensor:
+        return F.normalize(weight, p=2, dim=1)
+
+
+def get_heads(  # noqa: PLR0913
+    embed_dim: int,
+    codebook_size: int,
+    num_codebooks: int,
+    *,
+    layer_norm: Literal["none", "center", "affine"] = "none",
+    use_weight_norm: bool = False,
+    init: Literal["default", "orthogonal", "sphere"] = "default",
+) -> nn.ModuleList:
+    """Build classification head modules.
+
+    Parameters
+    ----------
+    embed_dim : int
+        Input embedding dimension
+    codebook_size : int
+        Output vocabulary size (number of codebook entries)
+    num_codebooks : int
+        Number of head modules to create (one per codebook)
+    layer_norm : {"none", "center", "affine"}, default="none"
+        LayerNorm mode before the linear layer:
+        - "none": No LayerNorm
+        - "center": Center-reduced LayerNorm (elementwise_affine=False)
+        - "affine": Full LayerNorm with learnable affine transform
+    use_weight_norm : bool, default=False
+        If True, apply weight normalization to the rows of the linear layer.
+    init : {"default", "orthogonal", "sphere"}, default="default"
+        Weight initialization strategy for the linear layer:
+        - "default": PyTorch default (Kaiming uniform)
+        - "orthogonal": Orthogonal initialization (90° apart rows)
+        - "sphere": Uniform on unit sphere (normalized Gaussian)
+
+    Returns
+    -------
+    nn.ModuleList
+        List of head modules (each is an nn.Sequential)
+    """
+    heads = []
+    for _ in range(num_codebooks):
+        layers = []
+
+        # Optional LayerNorm before the linear layer
+        if layer_norm != "none":
+            elementwise_affine = layer_norm == "affine"
+            layers.append(nn.LayerNorm(embed_dim, elementwise_affine=elementwise_affine))
+
+        linear = nn.Linear(embed_dim, codebook_size, bias=True)
+        if init == "orthogonal":
+            nn.init.orthogonal_(linear.weight)
+            nn.init.zeros_(linear.bias)
+        elif init == "sphere":
+            nn.init.normal_(linear.weight)
+            linear.weight.data = F.normalize(linear.weight.data, p=2, dim=1)
+            nn.init.zeros_(linear.bias)
+        if use_weight_norm:
+            nn.utils.parametrize.register_parametrization(linear, "weight", _UnitWeightNorm())
+        layers.append(linear)
+
+        layers.append(nn.LogSoftmax(dim=-1))
+
+        heads.append(nn.Sequential(*layers))
+    return nn.ModuleList(heads)
+
+
+class LossWeightDefinition(NamedTuple):
+    ssl: float = 1.0
+    supervised: float = 0.0
+
+
+class FrameLevelCrossEntropyLoss(nn.Module):
+    """Frame-level cross-entropy loss. Operates on logits and targets with the same length."""
+
+    def __init__(self) -> None:
+        """Initialize the loss function.
+
+        Parameters
+        ----------
+        ignore_index : int
+            The index to ignore when computing the loss.
+            Set this as the padding index in the target sequence.
+        """
+        super().__init__()
+
+    def forward(self, logits: Tensor, targets: Tensor, ignore_index: int) -> Tensor:
+        """Compute the frame-level cross-entropy loss.
+
+        Parameters
+        ----------
+        logits : Tensor
+            The model's output logits. Do not apply softmax. (N, T, C)
+        targets : Tensor
+            The target sequence. (N, T)
+
+        Returns
+        -------
+        Tensor
+            Computed loss.
+        """
+        assert logits.ndim == 3  # noqa: PLR2004
+        assert targets.ndim == 2  # noqa: PLR2004
+        return F.cross_entropy(logits.view(-1, logits.size(-1)), targets.flatten(), ignore_index=ignore_index)

@@ -1,0 +1,21 @@
+# Six-stream unit HiFi-GAN on SpidR 2.0 layers 5-10 (LJ Speech).
+# Paper: per-stream 64-dim embeddings, concatenated + linearly projected to
+# the 128-dim generator input. Otherwise the single-stream recipe.
+unit_vocoder:
+  workdir: /path/to/runs/vocoder-multi
+  train_manifest: /path/to/feats/spidr2-l5to10-dup/unit_vocoder/ljspeech_train.jsonl
+  val_manifest: /path/to/feats/spidr2-l5to10-dup/unit_vocoder/ljspeech_valid.jsonl
+  n_units: [256, 256, 256, 256, 256, 256]
+  agg_type: concat_lin
+
+  max_epochs: 2000
+  seed: 1234
+  lr: 0.0002
+  betas: [0.8, 0.99]
+  gamma: 0.999
+  batch_size: 64
+  segment_size: 8960
+  units_hop_size: 320
+  dtype: bfloat16
+  log_interval: 100
+  val_interval: 5000
