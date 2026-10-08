@@ -29,6 +29,8 @@ dependencies = [
     "matplotlib>=3.9.2",
     "seaborn>=0.13.2",
     "safetensors>=0.6.2",
+    "openai-whisper==20250625",
+    "utmos-pytorch==0.1.0",
 ]
 
 [dependency-groups]
@@ -49,6 +51,8 @@ gslm2-extract-units = "gslm2.eval.slm.extract_units:main"
 gslm2-eval-slm = "gslm2.eval.slm.score_benchmarks:main"
 gslm2-duration-predictor = "gslm2.vocoder.duration.__main__:main"
 gslm2-unit-vocoder = "gslm2.vocoder.unit.__main__:main"
+gslm2-synthesize = "gslm2.vocoder.unit.inference:main"
+gslm2-eval-resynthesis = "gslm2.vocoder.unit.eval_resynthesis:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -76,7 +76,18 @@ benchmark audio with `manifests_test=[benchmark.csv]` (6-stream config), pair
 with `gslm2.eval.slm.create_pairs.create_paired_file`, then run
 `gslm2-eval-slm` with the GSLM2 training config over the `pairs/` dir.
 
-## Generation, LT-Swap, resynthesis, multilingual cascade
+## Resynthesis (`tab:speech_resynthesis`)
 
-Under construction (Phase 5). Resynthesis pieces exist:
-`gslm2.vocoder.unit.evaluation`, `wer/*`, `mos/utmos.py`.
+```bash
+# 1. LJ Speech units (non-deduped oracle + deduped), 250 held-out utts
+gslm2-extract-units --config configs/extract/spidr2-l7-codes-dup.yaml
+# 2. oracle vs predicted durations, WER (Whisper/Qwen3-Omni) + UTMOS
+gslm2-eval-resynthesis --oracle-manifest feats/l7-dup/unit_vocoder/ljspeech_valid.jsonl \
+  --dedup-manifest feats/l7-dedup/unit_vocoder/ljspeech_valid.jsonl \
+  --asr-manifest ljspeech-valid-asr.jsonl --vocoder-checkpoint runs/vocoder-single/vocoder-last \
+  --duration-checkpoint runs/duration-single/best.pt --asr whisper --out-dir results/resynth
+```
+
+## Generation (ASR-PPL, NRS, LLMJ), LT-Swap, multilingual cascade
+
+Under construction (Phase 5).
