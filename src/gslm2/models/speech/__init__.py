@@ -1,1 +1,1 @@
-"""Speech models: DinoSR, SpidR, and variants."""
+"""SpidR 2.0 speech encoder."""

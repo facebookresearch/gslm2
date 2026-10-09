@@ -18,16 +18,10 @@ if TYPE_CHECKING:
 ALIGNMENT_FREQ = 100  # in Hz
 
 
-def conv_length(conv_layer_config: list[tuple[int, int, int]], length: Tensor, *, causal: bool = False) -> Tensor:
-    """Frame count out of the conv feature extractor.
-
-    ``causal=True`` accounts for the left-only padding of ``kernel_size - stride``
-    that ConvLayerBlock applies in causal mode, which yields more frames than the
-    unpadded non-causal case.
-    """
+def conv_length(conv_layer_config: list[tuple[int, int, int]], length: Tensor) -> Tensor:
+    """Frame count out of the conv feature extractor."""
     for _, kernel_size, stride in conv_layer_config:
-        pad = kernel_size - stride if causal else 0
-        length = torch.div(length + pad - kernel_size, stride, rounding_mode="floor") + 1
+        length = torch.div(length - kernel_size, stride, rounding_mode="floor") + 1
         length = torch.max(torch.zeros_like(length), length)
     return length
 
@@ -47,12 +41,10 @@ class SLMAudioCollator:
         conv_layer_config: list[tuple[int, int, int]],
         *,
         rand_crop: bool = True,
-        causal_fe: bool = False,
     ) -> None:
         self.max_sample_size = max_sample_size
         self.conv_layer_config = conv_layer_config
         self.rand_crop = rand_crop
-        self.causal_fe = causal_fe
 
     def __call__(self, indexed_samples: list[tuple[int, Sample]]) -> tuple[Tensor, Tensor, Tensor]:
         indices = torch.tensor([index for index, _ in indexed_samples])
@@ -65,7 +57,7 @@ class SLMAudioCollator:
             wavs.append(wav)
         lengths = torch.tensor([wav.size(0) for wav in wavs])
         waveforms = torch.nn.utils.rnn.pad_sequence(wavs, batch_first=True)
-        frame_lens = conv_length(self.conv_layer_config, lengths, causal=self.causal_fe)
+        frame_lens = conv_length(self.conv_layer_config, lengths)
         return waveforms, build_attention_mask(frame_lens), indices
 
 
@@ -80,7 +72,6 @@ class SpeechCollatorWithMasking:
         rand_crop: bool = True,
         collate_augmentations: bool = False,
         collate_phonemes: bool = False,
-        causal_fe: bool = False,
     ) -> None:
         self.mask_generator = mask_generator
         self.max_sample_size = max_sample_size
@@ -89,7 +80,6 @@ class SpeechCollatorWithMasking:
         self.rand_crop = rand_crop
         self.collate_augmentations = collate_augmentations
         self.collate_phonemes = collate_phonemes
-        self.causal_fe = causal_fe
 
     def process_phoneme_tokens(self, tokens: Tensor, frame_offset: int, num_samples: int) -> Tensor:
         model_downsampling = functools.reduce(lambda x, y: x * y, [layer[2] for layer in self.conv_layer_config])
@@ -102,7 +92,7 @@ class SpeechCollatorWithMasking:
 
         subsample = ALIGNMENT_FREQ // model_freq
         subsampled = tokens[::subsample]
-        output_length = conv_length(self.conv_layer_config, num_samples, causal=self.causal_fe)
+        output_length = conv_length(self.conv_layer_config, num_samples)
         if len(subsampled) == output_length:
             return subsampled
         if len(subsampled) == output_length + 1:
@@ -152,7 +142,7 @@ class SpeechCollatorWithMasking:
                 phoneme_list, batch_first=True, padding_value=Tokenizer(language).ignore_id
             )
 
-        lengths = conv_length(self.conv_layer_config, torch.tensor(wav_lengths), causal=self.causal_fe)
+        lengths = conv_length(self.conv_layer_config, torch.tensor(wav_lengths))
         padding_mask, attention_mask = build_padding_mask(lengths), build_attention_mask(lengths)
         mask_indices: Tensor | None = self.mask_generator(padding_mask)[0]
         return SampleBatch(

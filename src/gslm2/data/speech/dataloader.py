@@ -50,8 +50,6 @@ def build_dataloader(
     mask_cfg: MaskingConfig | None,
     conv_layer_config: list[tuple[int, int, int]],
     augmentations: list[AugmentConfig] | None = None,
-    *,
-    causal_fe: bool = False,
 ) -> DataLoader:
     # mask_cfg=None: on-the-fly SLM audio (raw waveforms + attention mask, no SSL masking).
     collate_fn = (
@@ -59,7 +57,6 @@ def build_dataloader(
             data_cfg.max_sample_size,
             conv_layer_config,
             rand_crop=data_cfg.rand_crop,
-            causal_fe=causal_fe,  # causal_fe must match the model
         )
         if mask_cfg is None
         else SpeechCollatorWithMasking(
@@ -70,7 +67,6 @@ def build_dataloader(
             rand_crop=data_cfg.rand_crop,
             collate_augmentations=bool(augmentations),
             collate_phonemes=bool(data_cfg.alignments_path),
-            causal_fe=causal_fe,
         )
     )
     dataset = speech_dataset(data_cfg, augmentations)

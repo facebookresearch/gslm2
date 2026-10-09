@@ -15,7 +15,6 @@ import torch
 from torch import Tensor
 
 from gslm2.config import (
-    DinoSRConfig,
     LMConfig,
     OnTheFlyUnitSource,
     PreExtractedUnitSource,
@@ -42,8 +41,6 @@ logger = logging.getLogger()
 SLM_RECORDS_EXTRA_KEYS: list[str] = ["perplexity", "nll_loss"]
 # The two terms the multi-stream loss blends, averaged per logging interval alongside "loss".
 MULTISTREAM_SLM_RECORDS_EXTRA_KEYS: list[str] = ["stream_specific_loss", "gen_loss"]
-
-_ENCODER_CONFIGS = {"spidr": SpidRConfig, "dinosr": DinoSRConfig}
 
 
 class SLMTrainer(BaseTrainer):
@@ -79,7 +76,7 @@ class SLMTrainer(BaseTrainer):
         if fe.checkpoint:
             encoder = build_model(model_type=fe.model_type, checkpoint=fe.checkpoint)
         else:  # random encoder (smoke tests / throughput benchmark — weights don't affect speed)
-            encoder = build_model(cfg=_ENCODER_CONFIGS[fe.model_type](), model_type=fe.model_type)
+            encoder = build_model(cfg=SpidRConfig(), model_type=fe.model_type)
         encoder = encoder.to(self.device, dtype=getattr(torch, fe.dtype)).train(mode=False)
         encoder.requires_grad_(requires_grad=False)
         logger.info(
@@ -103,7 +100,6 @@ class SLMTrainer(BaseTrainer):
             data.source.audio,
             mask_cfg=None,
             conv_layer_config=self._encoder.cfg.extractor_conv_layer_config,
-            causal_fe=getattr(self._encoder.cfg, "causal_fe", False),
         )
 
     def training_step(self, batch: Any, step: int) -> tuple[Tensor, dict[str, Any]]:  # noqa: ANN401, ARG002

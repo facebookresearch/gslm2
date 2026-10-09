@@ -1,69 +1,9 @@
-"""DinoSR and SpidR variants configuration."""
+"""SpidR 2.0 encoder configuration."""
 
 from dataclasses import dataclass, field
 from typing import Literal
 
 from gslm2.config.models.base import BaseModelConfig, build_nested_config
-
-
-@dataclass(frozen=True)
-class DinoSRConfig(BaseModelConfig):
-    """Model configuration. Corresponding names in `fairseq` in comments."""
-
-    extractor_mode: Literal["group_norm", "layer_norm"] = "layer_norm"  # model.extractor_mode
-    extractor_conv_bias: bool = False  # model.conv_bias
-    extractor_conv_layer_config: list[tuple[int, int, int]] = field(
-        default_factory=lambda: [(512, 10, 5)] + [(512, 3, 2)] * 4 + [(512, 2, 2)] * 2
-    )  # model.conv_feature_layers
-    extractor_channels_last: bool = True  # NHWC extractor, LayerNorm transposes become views
-    encoder_embed_dim: int = 768  # model.encoder_embed_dim
-    encoder_projection_dropout: float = 0  # model.dropout_input
-    encoder_pos_conv_kernel: int = 95  # model.conv_pos
-    encoder_pos_conv_groups: int = 16  # model.conv_pos_groups
-    encoder_pos_conv_depth: int = 5  # model.pos_conv_depth
-    encoder_disable_pos_conv: bool = False  # If True, skip ConvPos entirely (pos_conv_embed=None)
-    encoder_rope: bool = False  # Rotary position embeddings in self-attention (streamable)
-    encoder_rope_theta: float = 10000.0  # RoPE base frequency
-    encoder_attention_bias: Literal["none", "alibi"] = "none"  # Static relative bias (streamable)
-    encoder_front_ema: bool = False  # Per-channel leaky integrator before Transformer (streamable)
-    encoder_front_local_attn: bool = False  # Causal sliding-window attention block (streamable)
-    encoder_front_local_attn_window: int = 128  # Window size in frames
-    encoder_front_norm: Literal["none", "rmsnorm"] = "none"  # Front normalisation (stateless)
-    encoder_num_layers: int = 12  # model.encoder_layers
-    encoder_num_heads: int = 12  # model.encoder_attention_heads
-    encoder_attention_dropout: float = 0.1  # model.attention_dropout
-    encoder_ff_interm_features: int = 3072  # model.encoder_ffn_embed_dim
-    encoder_ff_interm_dropout: float = 0.0  # model.activation_dropout
-    encoder_dropout: float = 0.1  # model.dropout
-    encoder_layer_norm_first: bool = False  # model.layer_norm_first
-    encoder_layer_drop: float = 0.05  # model.encoder_layerdrop
-    encoder_qkv_bias: bool = False  # WARNING: not in `fairseq`, always True there.
-    feature_grad_mult: float = 1.0  # model.feature_grad_mult
-
-    codebook_size: int = 256  # model.codebook_size
-    codebook_decay: float = 0.9  # model.codebook_decay
-    num_codebooks: int = 8  # model.average_top_k_layers
-    ema_start_decay: float = 0.999  # model.ema_decay
-    ema_final_decay: float = 0.9999  # model.ema_end_decay
-    ema_final_step: int = 30_000  # model.ema_anneal_end_step
-    ema_exclude_layers: list[str] = field(default_factory=lambda: ["pos_conv_embed"])
-    freeze_step: int = 200_000  # model.freeze_teacher_step
-    unfreeze_encoder_step: int = 0
-    supervised_loss_weight: float = 0.0
-    supervised_every_step: int | None = None
-    supervised_languages: list[str] | None = None
-    num_supervised_layers: int = 1
-    supervised_layer: int = 12
-
-    def __post_init__(self) -> None:
-        if self.feature_grad_mult != 1.0:
-            raise ValueError("Feature gradient multiplier is not supported.")
-        if self.encoder_attention_bias not in ("none", "alibi"):
-            raise ValueError(f"Unknown encoder_attention_bias {self.encoder_attention_bias!r}.")
-        if self.encoder_front_norm not in ("none", "rmsnorm"):
-            raise ValueError(f"Unknown encoder_front_norm {self.encoder_front_norm!r}.")
-        if self.encoder_front_local_attn_window < 1:
-            raise ValueError("encoder_front_local_attn_window must be >= 1.")
 
 
 @dataclass(frozen=True)
@@ -96,11 +36,56 @@ class RegularisationConfig:
 
 
 @dataclass(frozen=True)
-class SpidRConfig(DinoSRConfig):
+class SpidRConfig(BaseModelConfig):
+    """SpidR 2.0 encoder configuration. Corresponding names in `fairseq` in comments."""
+
+    extractor_mode: Literal["group_norm", "layer_norm"] = "layer_norm"  # model.extractor_mode
+    extractor_conv_bias: bool = False  # model.conv_bias
+    extractor_conv_layer_config: list[tuple[int, int, int]] = field(
+        default_factory=lambda: [(512, 10, 5)] + [(512, 3, 2)] * 4 + [(512, 2, 2)] * 2
+    )  # model.conv_feature_layers
+    extractor_channels_last: bool = True  # NHWC extractor, LayerNorm transposes become views
+    encoder_embed_dim: int = 768  # model.encoder_embed_dim
+    encoder_projection_dropout: float = 0  # model.dropout_input
+    encoder_pos_conv_kernel: int = 95  # model.conv_pos
+    encoder_pos_conv_groups: int = 16  # model.conv_pos_groups
+    encoder_pos_conv_depth: int = 5  # model.pos_conv_depth
+    encoder_disable_pos_conv: bool = False  # If True, skip ConvPos entirely (pos_conv_embed=None)
+    encoder_rope: bool = False  # Rotary position embeddings in self-attention (streamable)
+    encoder_rope_theta: float = 10000.0  # RoPE base frequency
+    encoder_attention_bias: Literal["none", "alibi"] = "none"  # Static relative bias (streamable)
+    encoder_front_ema: bool = False  # Per-channel leaky integrator before Transformer (streamable)
+    encoder_front_local_attn: bool = False  # Causal sliding-window attention block (streamable)
+    encoder_front_local_attn_window: int = 128  # Window size in frames
+    encoder_front_norm: Literal["none", "rmsnorm"] = "none"  # Front normalisation (stateless)
+    encoder_num_layers: int = 12  # model.encoder_layers
+    encoder_num_heads: int = 12  # model.encoder_attention_heads
+    encoder_attention_dropout: float = 0.1  # model.attention_dropout
+    encoder_ff_interm_features: int = 3072  # model.encoder_ffn_embed_dim
+    encoder_ff_interm_dropout: float = 0.0  # model.activation_dropout
+    encoder_dropout: float = 0.1  # model.dropout
+    encoder_layer_norm_first: bool = False  # model.layer_norm_first
+    encoder_layer_drop: float = 0.0  # model.encoder_layerdrop
+    encoder_qkv_bias: bool = False  # WARNING: not in `fairseq`, always True there.
+    feature_grad_mult: float = 1.0  # model.feature_grad_mult
+
+    codebook_size: int = 256  # model.codebook_size
+    codebook_decay: float = 0.9  # model.codebook_decay
+    num_codebooks: int = 8  # model.average_top_k_layers
+    ema_start_decay: float = 0.999  # model.ema_decay
+    ema_final_decay: float = 0.9999  # model.ema_end_decay
+    ema_final_step: int = 30_000  # model.ema_anneal_end_step
+    ema_exclude_layers: list[str] = field(default_factory=lambda: ["pos_conv_embed"])
     ema_timescale: float = 20_000
     ema_threshold: float = 1e-7
     ema_final: float = 1.0
-    encoder_layer_drop: float = 0.0  # model.encoder_layerdrop
+    freeze_step: int = 200_000  # model.freeze_teacher_step
+    unfreeze_encoder_step: int = 0
+    supervised_loss_weight: float = 0.0
+    supervised_every_step: int | None = None
+    supervised_languages: list[str] | None = None
+    num_supervised_layers: int = 1
+    supervised_layer: int = 12
 
     # Teacher target mode
     teacher_use_heads: bool = False  # If True, use heads for teacher targets instead of codebooks
@@ -117,7 +102,14 @@ class SpidRConfig(DinoSRConfig):
     regularisation: RegularisationConfig | None = None
 
     def __post_init__(self) -> None:
-        super().__post_init__()
+        if self.feature_grad_mult != 1.0:
+            raise ValueError("Feature gradient multiplier is not supported.")
+        if self.encoder_attention_bias not in ("none", "alibi"):
+            raise ValueError(f"Unknown encoder_attention_bias {self.encoder_attention_bias!r}.")
+        if self.encoder_front_norm not in ("none", "rmsnorm"):
+            raise ValueError(f"Unknown encoder_front_norm {self.encoder_front_norm!r}.")
+        if self.encoder_front_local_attn_window < 1:
+            raise ValueError("encoder_front_local_attn_window must be >= 1.")
         if self.use_soft_targets and not self.teacher_use_heads:
             raise ValueError("Soft targets heads on the teacher side is not supported.")
         if isinstance(self.regularisation, dict):

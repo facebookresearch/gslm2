@@ -20,7 +20,7 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
-from gslm2.config import DataConfig, DinoSRConfig
+from gslm2.config import DataConfig, SpidRConfig
 from gslm2.data.common.masking.speech import build_attention_mask
 from gslm2.data.speech.collators import conv_length
 from gslm2.data.speech.dataset import speech_dataset_inference_safe
@@ -48,12 +48,12 @@ class RowFormat:
 
 def get_extractor_conv_layer_config() -> list[tuple[int, int, int]]:
     # TODO: config should be read from the config file in same location as the SSL ckpt  # noqa: FIX002, TD002
-    # Same default values for HuBert, Wav2vec2, DinoSR, SpidR
+    # Same default values for HuBert, Wav2vec2, WavLM, SpidR
     # https://huggingface.co/spaces/gradio/HuBERT/blob/main/fairseq/models/wav2vec/wav2vec2.py#L94
     # https://huggingface.co/spaces/gradio/HuBERT/blob/main/fairseq/models/hubert/hubert.py
     # https://github.com/microsoft/unilm/blob/c45389eda88e14c57de2c07472e3f49383a6dab0/wavlm/WavLM.py#L173C40-L173C92
 
-    return DinoSRConfig().extractor_conv_layer_config
+    return SpidRConfig().extractor_conv_layer_config
 
 
 class ApplyKmeans:
@@ -456,8 +456,6 @@ def transcribe_manifest(  # noqa: C901, PLR0912, PLR0913, PLR0915
     model = model.to(dtype=encoder_dtype)
 
     extractor_conv_layer_config = get_extractor_conv_layer_config()
-    causal_fe = getattr(getattr(model, "cfg", None), "causal_fe", False)
-
     if output_type == "embs_clustered_kmeans":
         if kmeans_path is None or not isinstance(cfg.vocab_size, int):
             raise ValueError("k-means extraction requires a model path and an integer vocab_size")
@@ -524,7 +522,7 @@ def transcribe_manifest(  # noqa: C901, PLR0912, PLR0913, PLR0915
                     waveform = move2gpu(waveform_batch[batch_start : batch_start + bz, : max(lengths)])
                     waveform = waveform.to(dtype=encoder_dtype)
                     file_paths = file_paths_batch[batch_start : batch_start + bz]
-                    conv_lengths = conv_length(extractor_conv_layer_config, lengths, causal=causal_fe)
+                    conv_lengths = conv_length(extractor_conv_layer_config, lengths)
                     attention_mask = build_attention_mask(conv_lengths)
 
                     if output_type == "codes":

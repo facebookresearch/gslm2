@@ -48,8 +48,7 @@ class NativeSlmEvaluator:
             waveforms = [load_audio(path, normalize=self.normalize) for path in paths[start : start + self.batch_size]]
             lengths = torch.tensor([wav.size(0) for wav in waveforms])
             padded = pad_sequence(waveforms, batch_first=True).to(self.device)
-            causal_fe = getattr(self.encoder.cfg, "causal_fe", False)
-            mask = build_attention_mask(conv_length(conv_layer_config, lengths, causal=causal_fe))
+            mask = build_attention_mask(conv_length(conv_layer_config, lengths))
             attention_mask = mask.to(self.device) if mask is not None else None
             per_file = extract_per_file_units(self.encoder, padded, attention_mask, self.fe)
             units.extend(seq[: self.fe.max_token_seq_len] for seq in per_file)

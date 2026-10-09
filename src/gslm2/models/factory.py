@@ -1,10 +1,8 @@
 import logging
-import typing as tp
 from pathlib import Path
 
 import torch
 from torch import nn
-from torch.hub import load_state_dict_from_url
 from torch.nn.modules.utils import consume_prefix_in_state_dict_if_present
 
 from gslm2.checkpoint import (
@@ -14,22 +12,18 @@ from gslm2.checkpoint import (
 from gslm2.config import (
     BaseModelConfig,
     CausalLMConfig,
-    DinoSRConfig,
     ModelType,
     MultiStreamCausalLMConfig,
     SpidRConfig,
 )
 from gslm2.models.core.multi_stream_opt import MultiStreamOPT
 from gslm2.models.core.opt import OPT
-from gslm2.models.speech.dinosr import DinoSR
 from gslm2.models.speech.spidr import SpidR
-from gslm2.utils import state_dict_from_dinosr_fairseq_checkpoint
 
 logger = logging.getLogger()
 
 _MODEL_REGISTRY: dict[ModelType, tuple[type[nn.Module], type[BaseModelConfig]]] = {
-    # speech encoders
-    "dinosr": (DinoSR, DinoSRConfig),
+    # speech encoder (SpidR 2.0)
     "spidr": (SpidR, SpidRConfig),
     # language models
     "opt": (OPT, CausalLMConfig),
@@ -132,21 +126,3 @@ def load_frozen_component(
     for p in part.parameters():
         p.requires_grad = False
     return part
-
-
-PretrainedModel = tp.Literal["dinosr-original"]
-
-
-def load_pretrained(name: PretrainedModel, **kwargs: str | bool) -> nn.Module:
-    match name:
-        case "dinosr-original":
-            url = "https://data.csail.mit.edu/placesaudio/dinosr/dinosr.ckpt"
-            state_dict = state_dict_from_dinosr_fairseq_checkpoint(load_state_dict_from_url(url, **kwargs))
-            model_type, cfg = "dinosr", DinoSRConfig(encoder_qkv_bias=True)
-        case _:
-            raise ValueError(f"Model '{name}' not recognized. Available models: {tp.get_args(PretrainedModel)}.")
-
-    model = build_model(cfg=cfg, model_type=model_type)
-    model.load_state_dict(state_dict)
-    model.eval()
-    return model

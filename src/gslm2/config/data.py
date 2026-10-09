@@ -66,7 +66,7 @@ class SpeechUnitConfig:
     discrete units (see ``gslm2.data.speech.unit_extraction``). ``unit_offset``
     reserves ids below it (PAD=0, EOS=1), so the LM vocab is
     ``codebook_size + unit_offset``. ``model_type`` selects the encoder in the model
-    registry (``spidr`` / ``dinosr``).
+    registry (``spidr``).
     """
 
     checkpoint: str

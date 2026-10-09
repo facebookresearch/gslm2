@@ -7,8 +7,7 @@ from typing import Literal, NotRequired, Required, TypedDict
 AUDIO_SAMPLE_RATE: int = 16_000
 MaskingStrategy = Literal["static", "uniform", "normal", "poisson"]
 ModelType = Literal[
-    # speech encoders (SpidR 2.0 trains; DinoSR loads official checkpoints only)
-    "dinosr",
+    # speech encoder (SpidR 2.0)
     "spidr",
     # language models (causal OPT/GPT-2 style, single- or multi-stream)
     "opt",
@@ -27,6 +26,7 @@ class SlurmConfig(TypedDict):
     mem_per_gpu: NotRequired[str]
     constraint: NotRequired[str]
     partition: NotRequired[str]
+    exclude: NotRequired[str]
 
 
 @dataclass(frozen=True)
@@ -50,7 +50,7 @@ class RunConfig:
     keep_best_n: int = 0  # keep top-N evaluated checkpoints by keep_best_metric
     keep_best_metric: str = "dev_loss"  # metrics.jsonl eval key to rank by
     keep_best_mode: Literal["min", "max"] = "min"
-    model_type: ModelType = "dinosr"
+    model_type: ModelType = "spidr"
     slurm: SlurmConfig | None = None
     slurm_validation: SlurmConfig | None = None
 

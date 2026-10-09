@@ -23,7 +23,7 @@ from gslm2.config.eval import ABXSubset, ABXTrainConfig, EvalSpec, build_eval_sp
 from gslm2.config.models import LM_MODEL_TYPES, model_type_to_config_type
 from gslm2.config.models.base import BaseModelConfig
 from gslm2.config.models.core import CausalLMConfig, MultiStreamCausalLMConfig
-from gslm2.config.models.speech import DinoSRConfig, RegularisationConfig, SpidRConfig
+from gslm2.config.models.speech import RegularisationConfig, SpidRConfig
 
 __all__ = [
     "AUDIO_SAMPLE_RATE",
@@ -35,7 +35,6 @@ __all__ = [
     "BaseModelConfig",
     "CausalLMConfig",
     "DataConfig",
-    "DinoSRConfig",
     "EvalSpec",
     "LMConfig",
     "MaskingConfig",

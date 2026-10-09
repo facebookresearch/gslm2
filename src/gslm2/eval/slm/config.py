@@ -10,7 +10,7 @@ from typing import Literal
 
 logger = logging.getLogger(__name__)
 
-ModelType = tp.Literal["dinosr", "spidr", "spidr_causal", "hubert", "wav2vec2", "wavlm", "text"]
+ModelType = tp.Literal["spidr", "hubert", "wav2vec2", "wavlm", "text"]
 
 
 def _resolve_paths(paths: list[Path] | None) -> list[Path]:

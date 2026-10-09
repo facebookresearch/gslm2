@@ -26,7 +26,7 @@ from gslm2.config.eval import (
 )
 from gslm2.config.models import LM_MODEL_TYPES, model_type_to_config_type
 from gslm2.config.models.core import CausalLMConfig, MultiStreamCausalLMConfig
-from gslm2.config.models.speech import DinoSRConfig, SpidRConfig
+from gslm2.config.models.speech import SpidRConfig
 
 
 @dataclass(frozen=True)
@@ -66,7 +66,7 @@ class SpeechConfig(BaseConfig):
     """Configuration for speech-encoder pretraining (SpidR 2.0)."""
 
     data: DataConfig | dict[str, DataConfig]
-    model: DinoSRConfig | SpidRConfig
+    model: SpidRConfig
     masking: MaskingConfig
     validation: list[EvalSpec] = field(default_factory=list)
 
@@ -182,7 +182,7 @@ def load_config(path: str | Path) -> SpeechConfig | LMConfig:
         raise ValueError(f"Unsupported file format: {path.suffix}")
     with path.open() as f:
         data = json.load(f) if path.suffix == ".json" else yaml.safe_load(f)
-    model_type = data.get("run", {}).get("model_type", "dinosr")
+    model_type = data.get("run", {}).get("model_type", "spidr")
     if model_type in LM_MODEL_TYPES:
         return LMConfig.from_file(path)
     return SpeechConfig.from_file(path)

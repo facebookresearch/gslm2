@@ -10,7 +10,7 @@ from gslm2.config import ABXSubset, DataConfig, ResumeConfig, SpeechConfig
 from gslm2.data.speech.dataloader import build_dataloader, speech_dataset
 from gslm2.environment import set_seed, setup_environment, setup_pytorch
 from gslm2.eval.encoder.abx import ABXConfig, compute_abx
-from gslm2.models import DinoSR, LossWeightDefinition, SpidR, build_model
+from gslm2.models import LossWeightDefinition, SpidR, build_model
 from gslm2.tools import init_logger
 
 logger = logging.getLogger()
@@ -18,7 +18,7 @@ logger = logging.getLogger()
 
 @torch.no_grad()
 def validate(
-    model: DinoSR | SpidR, loader: DataLoader, device: torch.device, loss_weights: LossWeightDefinition
+    model: SpidR, loader: DataLoader, device: torch.device, loss_weights: LossWeightDefinition
 ) -> dict[str, float]:
     model.eval()
     total_ssl_loss = torch.zeros(1, device=device)
@@ -92,7 +92,7 @@ def wrapper_abx(cfg: SpeechConfig, resume: ResumeConfig, subset: ABXSubset, code
 
 
 def online_extract_representations(  # noqa: PLR0913
-    model: DinoSR,
+    model: SpidR,
     output_dir: Path,
     manifests: list[Path],
     layers: list[int],

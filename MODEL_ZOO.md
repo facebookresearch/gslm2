@@ -9,6 +9,5 @@ Released checkpoints (links to be added on release):
 
 External baselines used in the paper:
 
-- DinoSR official checkpoint (loadable via `gslm2.models.load_pretrained("dinosr-original")`)
 - SpidR official checkpoint
 - HuBERT Base (via torchaudio)

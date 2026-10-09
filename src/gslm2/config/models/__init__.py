@@ -3,14 +3,12 @@
 from gslm2.config.common import ModelType
 from gslm2.config.models.base import BaseModelConfig
 from gslm2.config.models.core import CausalLMConfig, MultiStreamCausalLMConfig
-from gslm2.config.models.speech import DinoSRConfig, SpidRConfig
+from gslm2.config.models.speech import SpidRConfig
 
 
 def model_type_to_config_type(model_type: ModelType) -> type[BaseModelConfig]:
     match model_type:
-        # speech encoders
-        case "dinosr":
-            return DinoSRConfig
+        # speech encoder (SpidR 2.0)
         case "spidr":
             return SpidRConfig
         # language models

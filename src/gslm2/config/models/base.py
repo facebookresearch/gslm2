@@ -13,8 +13,8 @@ T = TypeVar("T")
 class BaseModelConfig:
     """Empty base for model configs.
 
-    Every model configuration (DinoSR, SpidR, OPT, ...
-    WorldModel, …) inherits from this so that functions accepting *any*
+    Every model configuration (SpidR, OPT, MultiStreamOPT) inherits
+    from this so that functions accepting *any*
     model config can be typed as ``BaseModelConfig`` instead of
     spelling out the full union.
     """
