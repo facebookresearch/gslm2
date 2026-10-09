@@ -40,6 +40,7 @@ def main() -> None:
     parser.add_argument("-C", "--constraint", type=str, help="Slurm constraint", default=cluster.get("constraint"))
     parser.add_argument("-q", "--qos", type=str, help="Slurm QoS")
     parser.add_argument("-p", "--partition", type=str, help="Slurm partition")
+    parser.add_argument("-x", "--exclude", type=str, help="Slurm nodes to exclude")
     parser.add_argument("--dump", type=Path, default=os.getenv("GSLM2_SUBMITIT_FOLDER"), help="Submitit dump")
     args = parser.parse_args()
 

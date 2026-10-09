@@ -1,6 +1,9 @@
 # Single-stream SLM (1.2B) on Libri-Light 60Kh, SpidR 2.0 layer-7 units.
 # Paper: 150k steps, 16 GPUs (DDP), global batch 655360 units, ctx 2048,
-# peak LR 1e-3 (cosine, 1k warmup). Per-GPU audio batch 46.8M samples.
+# peak LR 1e-3 (cosine, 1k warmup). Per-GPU audio batch 7.68M samples
+# (~8 x 60 s files, fs2 micro-batch equivalent) — the 1B DDP-only model cannot
+# take more (rows pad to batch max). The paper-scale 1.2B run needs FSDP +
+# activation checkpointing.
 run:
   workdir: /path/to/runs/slm-ll-60kh-1b
   wandb_project: gslm2
@@ -32,7 +35,7 @@ data:
       normalize: true
       max_sample_size: 960000  # 60 s @ 16 kHz
       min_sample_size: 32000  # 2 s
-      max_batch_length: 46800000  # per-GPU audio samples ~= paper unit batch
+      max_batch_length: 7680000  # ~8 x 60 s files/GPU/step; see header note
       num_workers: 8
       pin_memory: true
     feature_extraction:

@@ -1,7 +1,9 @@
 # Single-stream SLM (90M) on Libri-Light 600h, SpidR 2.0 layer-7 units.
 # Paper: 15k steps, 8 GPUs (DDP), global batch 655360 units, ctx 2048,
-# peak LR 1e-2 (cosine, 1k warmup). On-the-fly extraction; per-GPU audio batch
-# 93.6M samples ~= 81920 units at the measured ~14 units/s (layer 7, deduped).
+# peak LR 1e-2 (cosine, 1k warmup). On-the-fly extraction with per-GPU audio
+# batch 30.72M samples (~32 x 60 s files -> ~32 rows). Rows are padded to the
+# batch max length, so the dense-packing equivalent (93.6M) OOMs — do not scale
+# this line by the units/s rate.
 # Merge the scale's segment manifests into one CSV (see DATA.md).
 run:
   workdir: /path/to/runs/slm-ll-600h-90m
@@ -34,7 +36,7 @@ data:
       normalize: true
       max_sample_size: 960000  # 60 s @ 16 kHz
       min_sample_size: 32000  # 2 s
-      max_batch_length: 93600000  # per-GPU audio samples ~= paper unit batch
+      max_batch_length: 30720000  # ~32 x 60 s files/GPU/step (proven); per-file rows pad to batch max
       num_workers: 8
       pin_memory: true
     feature_extraction:

@@ -31,9 +31,9 @@ gslm2-extract-units --config configs/extract/spidr-l6-kmeans.yaml
 ```bash
 CKPT=/path/to/spidr2.0-seed0-final.pt
 # ABX triphone (continuous + discrete), dev-clean / dev-other
-gslm2-eval-abx $CKPT abx.csv dev-clean.tsv triphone-dev-clean.item \
+gslm2-eval-abx $CKPT abx.csv dev-clean.tsv triphone-dev-clean.item spidr \
   --speaker_mode all --context_mode within --layers 10,11,12
-gslm2-eval-abx $CKPT abx-discrete.csv dev-clean.tsv triphone-dev-clean.item \
+gslm2-eval-abx $CKPT abx-discrete.csv dev-clean.tsv triphone-dev-clean.item spidr \
   --speaker_mode all --context_mode within --layers 10,11,12 --codebook_proba
 # MAP word discovery
 gslm2-eval-map $CKPT map.csv dev-clean-map.tsv dev-clean-words.jsonl spidr --layers 10,11,12
