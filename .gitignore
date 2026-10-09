@@ -13,3 +13,7 @@ results/
 checkpoints/
 *.pt
 *.pth
+.DS_Store
+.vscode
+*.code-workspace
+.python-version

@@ -45,3 +45,7 @@ See [`REPRODUCING.md`](REPRODUCING.md) for the per-table command map,
 - `src/gslm2/vocoder/` — duration predictor and unit HiFi-GAN vocoder
 - `configs/` — canonical paper configs
 - `scripts/` — analysis and figure scripts
+
+## License
+
+Source code and model checkpoints are provided under the CC BY-NC 4.0 License — see [LICENSE](LICENSE) and [MODEL_ZOO.md](MODEL_ZOO.md).

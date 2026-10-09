@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "gslm2"
 version = "0.1"
 requires-python = ">=3.12"
+license = { text = "CC-BY-NC-4.0" }
 dependencies = [
     "torch==2.13.0",
     "torchcodec==0.14.0",
