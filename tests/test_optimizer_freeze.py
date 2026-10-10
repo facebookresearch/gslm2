@@ -162,3 +162,23 @@ def test_boundary_resume_defers_drop_to_hook(tmp_path) -> None:
     assert len(fresh_opt.param_groups) == 1
     fresh_sched.step()  # must not raise
     assert len(fresh_sched.get_last_lr()) == 1
+
+
+def test_lambda_lr_survives_group_drop() -> None:
+    """LambdaLR (the decay-phase scheduler) must also prune lr_lambdas.
+
+    Regression test: pruning base_lrs alone still crashed inside
+    LambdaLR.get_lr (strict zip over lr_lambdas) on the resumed run.
+    """
+    from torch.optim.lr_scheduler import LambdaLR
+
+    from gslm2.optimizer import drop_scheduler_base_lrs
+
+    model = _TinyModel()
+    opt, _ = build_optimizer(model, OptimizerConfig())
+    sched = LambdaLR(opt, lr_lambda=lambda epoch: 0.99**epoch)
+    removed = remove_frozen_param_groups(opt)
+    assert removed
+    drop_scheduler_base_lrs(sched, len(opt.param_groups))
+    sched.step()  # must not raise
+    assert len(sched.get_last_lr()) == len(opt.param_groups)

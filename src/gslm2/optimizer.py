@@ -92,16 +92,17 @@ class CyclicDualLR(CyclicLR):
 
 
 def drop_scheduler_base_lrs(scheduler: LRScheduler, num_groups: int) -> None:
-    """Shrink scheduler ``base_lrs``/``_last_lr`` to ``num_groups`` entries.
+    """Shrink per-group scheduler state to ``num_groups`` entries.
 
     Called after frozen optimizer param groups are dropped: the schedulers
-    captured per-group LRs at construction, and torch>=2.13 zips them
-    strictly against the live groups. Frozen groups are always a suffix
+    captured per-group state at construction (``base_lrs``, ``_last_lr``,
+    and ``lr_lambdas`` on LambdaLR-style schedulers), and torch>=2.13 zips
+    it strictly against the live groups. Frozen groups are always a suffix
     (see ``build_optimizer``), so truncation preserves alignment; already
     short state (e.g. resumed post-drop checkpoints) is left untouched.
     Recurses into ``SequentialLR`` sub-schedulers.
     """
-    for attr in ("base_lrs", "_last_lr"):
+    for attr in ("base_lrs", "_last_lr", "lr_lambdas"):
         values = getattr(scheduler, attr, None)
         if isinstance(values, list) and len(values) > num_groups:
             del values[num_groups:]
