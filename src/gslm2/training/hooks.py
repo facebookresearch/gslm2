@@ -9,6 +9,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Protocol
 
 from gslm2.checkpoint import remove_frozen_param_groups
+from gslm2.optimizer import drop_scheduler_base_lrs
 
 if TYPE_CHECKING:
     from gslm2.training.base import BaseTrainer
@@ -30,7 +31,13 @@ class FreezeParamGroupHook:
 
     def __call__(self, trainer: "BaseTrainer", step: int, batch: Any) -> None:  # noqa: ANN401, ARG002
         if step == self.freeze_step:
-            remove_frozen_param_groups(trainer.optimizer)
+            n_before = len(trainer.optimizer.param_groups)
+            removed = remove_frozen_param_groups(trainer.optimizer)
+            if removed:
+                assert removed == list(range(n_before - len(removed), n_before)), (
+                    "frozen groups must be a suffix for scheduler truncation"
+                )
+                drop_scheduler_base_lrs(trainer.scheduler, len(trainer.optimizer.param_groups))
 
 
 class UpdateEmaHook:

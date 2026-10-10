@@ -64,3 +64,55 @@ def test_uniform_weight_decay_when_disabled() -> None:
     trainable = [g for g in opt.param_groups if not g.get("is_frozen")]
     assert len(trainable) == 1, "uniform weight decay should yield a single trainable group"
     assert trainable[0].get("weight_decay", None) != 0.0
+
+
+def _walk_schedulers(sched):
+    yield sched
+    for sub in getattr(sched, "_schedulers", []):
+        yield from _walk_schedulers(sub)
+
+
+def test_scheduler_survives_frozen_group_drop() -> None:
+    """Scheduler state must shrink with the optimizer at freeze_step.
+
+    Regression test: dropping frozen param groups without shrinking the
+    schedulers' base_lrs crashes every step after freeze_step on torch>=2.13
+    (strict zip in _update_lr) — the encoder run died exactly this way at
+    step 200000. The base_lrs invariant below catches it on any version.
+    """
+    import types
+
+    from gslm2.training.hooks import FreezeParamGroupHook
+
+    model = _TinyModel()
+    opt, sched = build_optimizer(model, OptimizerConfig())
+    assert len(opt.param_groups) > 1
+
+    stub = types.SimpleNamespace(optimizer=opt, scheduler=sched)
+    FreezeParamGroupHook(freeze_step=200_000)(stub, 200_000, None)
+
+    n_groups = len(opt.param_groups)
+    assert n_groups >= 1
+    for s in _walk_schedulers(sched):
+        if hasattr(s, "base_lrs"):  # SequentialLR itself holds none; subs do
+            assert len(s.base_lrs) == n_groups, f"{type(s).__name__}.base_lrs not shrunk"
+    sched.step()  # must not raise
+    assert len(sched.get_last_lr()) == n_groups
+
+
+def test_scheduler_prune_is_idempotent() -> None:
+    """Pruning already-short scheduler state (resumed post-drop checkpoint)
+    must be a no-op; remaining groups keep their exact LR schedule."""
+    from gslm2.optimizer import drop_scheduler_base_lrs
+
+    model = _TinyModel()
+    opt, sched = build_optimizer(model, OptimizerConfig())
+    _, ref_sched = build_optimizer(_TinyModel(), OptimizerConfig())
+    removed = remove_frozen_param_groups(opt)
+    assert removed
+    n_groups = len(opt.param_groups)
+    drop_scheduler_base_lrs(sched, n_groups)
+    drop_scheduler_base_lrs(sched, n_groups)  # second call: no-op
+    sched.step()
+    ref_sched.step()
+    assert sched.get_last_lr() == ref_sched.get_last_lr()[:n_groups]

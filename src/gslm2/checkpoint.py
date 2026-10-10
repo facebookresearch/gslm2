@@ -13,6 +13,7 @@ from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
 
 from gslm2.config import BaseModelConfig, ModelType
+from gslm2.optimizer import drop_scheduler_base_lrs
 from gslm2.tools.metrics_queue import MetricsQueue
 
 logger = logging.getLogger()
@@ -25,12 +26,17 @@ def remove_param_group(optim: Optimizer, index: int) -> None:
     del optim.param_groups[index]
 
 
-def remove_frozen_param_groups(optim: Optimizer) -> None:
+def remove_frozen_param_groups(optim: Optimizer) -> list[int]:
     """Drop every param group tagged ``is_frozen`` (feature-extractor freeze at
-    ``freeze_step``). No-op when the optimizer has no such groups."""
-    for index in reversed(range(len(optim.param_groups))):
-        if optim.param_groups[index].get("is_frozen"):
-            remove_param_group(optim, index)
+    ``freeze_step``). No-op when the optimizer has no such groups.
+
+    Returns the removed group indices (ascending) so callers can prune
+    scheduler state (``base_lrs``) in lockstep.
+    """
+    removed = [i for i, g in enumerate(optim.param_groups) if g.get("is_frozen")]
+    for index in reversed(removed):
+        remove_param_group(optim, index)
+    return removed
 
 
 def find_checkpoints(folder: Path) -> list[Path]:
@@ -279,7 +285,8 @@ class Checkpointer:
         freeze_step = getattr(self._state.model, "freeze_step", None)
         if freeze_step is not None and self._state.model.current_step >= freeze_step:
             self._state.model.freeze_extractor()
-            remove_frozen_param_groups(self._state.optimizer)
+            if remove_frozen_param_groups(self._state.optimizer):
+                drop_scheduler_base_lrs(self._state.scheduler, len(self._state.optimizer.param_groups))
         assert len(self._state.optimizer.param_groups) == len(ckpt["optimizer"]["param_groups"]), (
             "inconsistency across current and ckpt's param_groups."
         )
