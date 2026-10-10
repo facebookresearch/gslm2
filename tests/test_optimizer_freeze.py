@@ -116,3 +116,49 @@ def test_scheduler_prune_is_idempotent() -> None:
     sched.step()
     ref_sched.step()
     assert sched.get_last_lr() == ref_sched.get_last_lr()[:n_groups]
+
+
+def test_boundary_resume_defers_drop_to_hook(tmp_path) -> None:
+    """Resuming from a boundary checkpoint (full groups, step == freeze_step)
+    must NOT drop at load: the hook drops + prunes the scheduler when the
+    step runs. Dropping at load breaks the group-count assert and the
+    optimizer state restore."""
+    import types
+
+    import torch
+
+    from gslm2.checkpoint import Checkpoint, Checkpointer
+    from gslm2.training.hooks import FreezeParamGroupHook
+
+    model = _TinyModel()
+    model.freeze_step = 200_000
+    model.register_buffer("current_step", torch.tensor([200_000]))
+    opt, sched = build_optimizer(model, OptimizerConfig())
+    assert len(opt.param_groups) == 2
+    ckpt_path = tmp_path / "step_200000.pt"
+    torch.save(
+        {
+            "model": model.state_dict(),
+            "optimizer": opt.state_dict(),
+            "scheduler": sched.state_dict(),
+            "epoch": torch.tensor([0]),
+            "supervised_epoch": torch.tensor([0]),
+            "step": torch.tensor([200_000]),
+        },
+        ckpt_path,
+    )
+
+    fresh = _TinyModel()
+    fresh.freeze_step = 200_000
+    fresh.register_buffer("current_step", torch.tensor([0]))
+    fresh_opt, fresh_sched = build_optimizer(fresh, OptimizerConfig())
+    ckptr = Checkpointer(tmp_path, interval=1)
+    ckptr._state = Checkpoint(fresh, fresh_opt, fresh_sched, torch.tensor([0]), torch.tensor([0]), torch.tensor([0]))
+    assert ckptr._load_from_path(ckpt_path)
+    assert len(fresh_opt.param_groups) == 2, "boundary ckpt must keep full groups at load"
+
+    stub = types.SimpleNamespace(optimizer=fresh_opt, scheduler=fresh_sched)
+    FreezeParamGroupHook(freeze_step=200_000)(stub, 200_000, None)
+    assert len(fresh_opt.param_groups) == 1
+    fresh_sched.step()  # must not raise
+    assert len(fresh_sched.get_last_lr()) == 1

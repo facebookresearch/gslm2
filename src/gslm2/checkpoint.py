@@ -283,7 +283,16 @@ class Checkpointer:
         self._state.model.load_state_dict(ckpt["model"])
 
         freeze_step = getattr(self._state.model, "freeze_step", None)
-        if freeze_step is not None and self._state.model.current_step >= freeze_step:
+        # Only align to a post-drop checkpoint (fewer groups than a fresh
+        # build). A boundary checkpoint (e.g. step_200000.pt, saved with full
+        # groups before the crash) must keep full state: the pre-step hook
+        # performs the drop + scheduler prune when step 200000 runs.
+        ckpt_groups = len(ckpt["optimizer"]["param_groups"])
+        if (
+            freeze_step is not None
+            and self._state.model.current_step >= freeze_step
+            and ckpt_groups < len(self._state.optimizer.param_groups)
+        ):
             self._state.model.freeze_extractor()
             if remove_frozen_param_groups(self._state.optimizer):
                 drop_scheduler_base_lrs(self._state.scheduler, len(self._state.optimizer.param_groups))
