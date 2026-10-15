@@ -34,6 +34,14 @@ dependencies = [
     "utmos-pytorch==0.1.0",
 ]
 
+[project.optional-dependencies]
+# fairseq2 SLM pipeline (gslm2.fs2). Needs torch==2.9.* (fairseq2~=0.7.0),
+# which conflicts with the default torch 2.13 env -> install into a dedicated env.
+fs2 = ["fairseq2~=0.7.0"]
+
+[project.entry-points."fairseq2.extension"]
+"fairseq2" = "gslm2.fs2.register:setup_fairseq2_extension"
+
 [dependency-groups]
 dev = [
     "ruff==0.11.9",
