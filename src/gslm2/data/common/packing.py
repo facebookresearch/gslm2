@@ -113,59 +113,6 @@ def packed_instance_norm(x: Tensor, cu_seqlens: Tensor, segment_ids: Tensor | No
     return out_t.transpose(1, 2).to(x.dtype)
 
 
-def update_cu_seqlens_for_stride(
-    cu_seqlens: Tensor,
-    stride: int,
-) -> tuple[Tensor, int]:
-    """Recompute cu_seqlens after a strided conformer layer.
-
-    Each segment's length changes: new_len = ceil(old_len / stride).
-
-    Args:
-        cu_seqlens: [N+1] int32 current cumulative lengths.
-        stride: int, the conformer conv stride.
-
-    Returns:
-        new_cu_seqlens: [N+1] int32 updated cumulative lengths.
-        new_max_seqlen: int.
-    """
-    old_lengths = cu_seqlens[1:] - cu_seqlens[:-1]
-    new_lengths = (old_lengths + stride - 1) // stride
-    new_cu_seqlens = F.pad(new_lengths.cumsum(0), (1, 0)).to(torch.int32)
-    new_max_seqlen = int(new_lengths.max().item())
-    return new_cu_seqlens, new_max_seqlen
-
-
-def stride_packed_residual(
-    residual: Tensor,
-    cu_seqlens: Tensor,
-    stride: int,
-) -> Tensor:
-    """Subsample a packed tensor by stride, keeping segment boundaries intact.
-
-    Args:
-        residual: [1, T_total, D] packed residual.
-        cu_seqlens: [N+1] int32 segment boundaries.
-        stride: int.
-
-    Returns:
-        [1, T_total_strided, D] with each segment strided independently.
-    """
-    if stride == 1:
-        return residual
-
-    B, T, D = residual.shape  # noqa: N806
-    num_segments = cu_seqlens.shape[0] - 1
-    lengths = (cu_seqlens[1:] - cu_seqlens[:-1]).to(torch.long)
-
-    seg_starts = cu_seqlens[:-1].to(torch.long)
-    seg_ids = torch.repeat_interleave(torch.arange(num_segments, device=residual.device), lengths)
-    pos_in_seg = torch.arange(T, device=residual.device) - seg_starts[seg_ids]
-
-    keep_mask = (pos_in_seg % stride) == 0
-    return residual[:, keep_mask, :]
-
-
 def conv_output_length(
     input_lengths: Tensor,
     conv_layer_config: list[tuple[int, int, int]],

@@ -10,8 +10,6 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from gslm2.data.common.packing import stride_packed_residual, update_cu_seqlens_for_stride
-
 try:
     from flash_attn.cute import flash_attn_varlen_func
 
@@ -303,102 +301,6 @@ class SelfAttention(nn.Module):
         return self.proj(x)
 
 
-class ConformerConvolutionModule(nn.Module):
-    """Conformer Convolution Module."""
-
-    def __init__(self, embed_dim: int, kernel_size: int, stride: int) -> None:
-        super().__init__()
-        assert kernel_size % 2 == 1
-        self.stride = stride
-
-        self.pointwise_conv1 = nn.Conv1d(
-            embed_dim,
-            2 * embed_dim,
-            kernel_size=1,
-            stride=1,
-            padding=0,
-        )
-        self.depthwise_conv = nn.Conv1d(
-            embed_dim,
-            embed_dim,
-            kernel_size,
-            stride=stride,
-            padding=(kernel_size - 1) // 2,
-            groups=embed_dim,
-        )
-        self.norm = nn.BatchNorm1d(embed_dim)
-        self.pointwise_conv2 = nn.Conv1d(
-            embed_dim,
-            embed_dim,
-            kernel_size=1,
-            stride=1,
-            padding=0,
-        )
-
-    def forward(
-        self,
-        x: Tensor,
-        attention_mask: Tensor | None = None,
-        cu_seqlens: Tensor | None = None,
-    ) -> Tensor:
-        if cu_seqlens is not None:
-            assert x.shape[0] == 1, f"packed convolution expects a batch of 1, got {x.shape[0]}"
-            x_2d = x.squeeze(0)
-            num_segments = cu_seqlens.shape[0] - 1
-            segments_out = []
-            for s in range(num_segments):
-                start = int(cu_seqlens[s].item())
-                end = int(cu_seqlens[s + 1].item())
-                seg = x_2d[start:end, :].unsqueeze(0).transpose(1, 2)
-                seg = self.pointwise_conv1(seg)
-                seg = F.glu(seg, dim=1)
-                seg = self.depthwise_conv(seg)
-                seg = self.norm(seg)
-                seg = F.silu(seg)
-                seg = self.pointwise_conv2(seg)
-                segments_out.append(seg.transpose(1, 2).squeeze(0))
-            return torch.cat(segments_out, dim=0).unsqueeze(0)
-
-        # x: (batch, seq_len, embed_dim)
-        # attention_mask: (batch, 1, seq_len, seq_len) bool - True for VALID, False for MASKED
-
-        # Create padding mask from attention_mask if provided
-        # padding_mask: (batch, 1, seq_len) - True for valid positions, False for padding
-        # Extract the first row to get a 1D mask per sample: (batch, 1, seq_len)
-        # attention_mask is True for valid positions, so use it directly
-        padding_mask = attention_mask[:, :, 0] if attention_mask is not None else None
-
-        x = x.transpose(1, 2)  # (batch, embed_dim, seq_len)
-
-        # Zero out padding before pointwise conv
-        if padding_mask is not None:
-            x = x * padding_mask
-
-        x = self.pointwise_conv1(x)
-        x = F.glu(x, dim=1)
-
-        # Zero out padding before depthwise conv (the conv that causes boundary effects)
-        if padding_mask is not None:
-            x = x * padding_mask
-
-        x = self.depthwise_conv(x)
-        x = F.silu(x)
-
-        # After strided depthwise conv, need to update padding mask
-        if padding_mask is not None and self.stride > 1:
-            padding_mask = padding_mask[:, :, :: self.stride]
-            # Ensure mask matches output length
-            padding_mask = padding_mask[:, :, : x.size(2)]
-
-        # Zero out padding before final pointwise conv
-        if padding_mask is not None:
-            x = x * padding_mask
-
-        x = self.pointwise_conv2(x)
-
-        return x.transpose(1, 2)
-
-
 class FeedForward(nn.Module):
     """Layer that follows attention layer in encoder layer."""
 
@@ -456,97 +358,6 @@ class TransformerLayer(nn.Module):
             layer_result = self.feed_forward(x)
             x = self.dropout(layer_result)
             x = self.final_layer_norm(residual + x)
-        return x, layer_result
-
-
-class ConformerLayer(nn.Module):
-    """Combines multihead self attention, feed forward, and convolution module."""
-
-    def __init__(  # noqa: PLR0913
-        self,
-        feed_forward1: FeedForward,
-        attention: SelfAttention,
-        convolution: ConformerConvolutionModule,
-        feed_forward2: FeedForward,
-        dropout: float,
-        *,
-        layer_norm_first: bool,
-    ) -> None:
-        super().__init__()
-        embed_dim = attention.embed_dim
-
-        self.feed_forward1 = feed_forward1
-        self.norm_ff1 = nn.LayerNorm(embed_dim)
-
-        self.attention = attention
-        self.norm_attn = nn.LayerNorm(embed_dim)
-
-        self.convolution = convolution
-        self.norm_conv = nn.LayerNorm(embed_dim)
-
-        self.feed_forward2 = feed_forward2
-        self.norm_ff2 = nn.LayerNorm(embed_dim)
-
-        self.dropout = nn.Dropout(dropout)
-
-        self.layer_norm_first = layer_norm_first
-
-    def forward(  # noqa: C901
-        self,
-        x: Tensor,
-        attention_mask: Tensor | None = None,
-        cu_seqlens: Tensor | None = None,
-        max_seqlen: int | None = None,
-    ) -> tuple[Tensor, Tensor | None]:
-        # feed-forward
-        residual = x
-        if self.layer_norm_first:
-            x = self.norm_ff1(x)
-        x = residual + 0.5 * self.dropout(self.feed_forward1(x))
-        if not self.layer_norm_first:
-            x = self.norm_ff1(x)
-
-        # self-attention
-        residual = x
-        if self.layer_norm_first:
-            x = self.norm_attn(x)
-        x = residual + self.dropout(
-            self.attention(x, attention_mask=attention_mask, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen)
-        )
-        if not self.layer_norm_first:
-            x = self.norm_attn(x)
-
-        # convolution
-        residual = x
-        if self.layer_norm_first:
-            x = self.norm_conv(x)
-        x = self.convolution(x, attention_mask=attention_mask, cu_seqlens=cu_seqlens)
-
-        if self.convolution.stride == 1:
-            # standard conformer
-            x = residual + self.dropout(x)
-        else:
-            # conformer with downsampling
-            if cu_seqlens is not None:
-                residual = stride_packed_residual(residual, cu_seqlens, self.convolution.stride)
-                cu_seqlens, max_seqlen = update_cu_seqlens_for_stride(cu_seqlens, self.convolution.stride)
-            else:
-                residual = residual[:, :: self.convolution.stride, :]
-            common_len = min(x.size(1), residual.size(1))
-            x = residual[:, :common_len, :] + self.dropout(x[:, :common_len, :])
-
-        if not self.layer_norm_first:
-            x = self.norm_conv(x)
-
-        # feed-forward
-        residual = x
-        if self.layer_norm_first:
-            x = self.norm_ff2(x)
-        layer_result = self.feed_forward2(x)
-        x = residual + 0.5 * self.dropout(layer_result)
-        if not self.layer_norm_first:
-            x = self.norm_ff2(x)
-
         return x, layer_result
 
 
@@ -620,11 +431,6 @@ class Transformer(nn.Module):
         for layer in self.layers:
             x_output, layer_result = layer(x, attention_mask, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen)
             if not (self.training and torch.rand(1) < self.layer_drop):
-                if isinstance(layer, ConformerLayer) and attention_mask is not None:
-                    attention_mask = attention_mask[..., :: layer.convolution.stride, :: layer.convolution.stride]
-                    attention_mask = attention_mask[..., : x_output.size(1), : x_output.size(1)]
-                if isinstance(layer, ConformerLayer) and layer.convolution.stride > 1 and cu_seqlens is not None:
-                    cu_seqlens, max_seqlen = update_cu_seqlens_for_stride(cu_seqlens, layer.convolution.stride)
                 x = x_output.clone()
             ret.append(layer_result)
             if num_layers is not None and len(ret) >= num_layers:
@@ -671,46 +477,21 @@ def get_encoder(  # noqa: PLR0913
     *,
     layer_norm_first: bool,
     qkv_bias: bool,
-    conformer_layer_indices: list[int] | None = None,
-    conformer_kernel_sizes: list[int] | None = None,
-    conformer_strides: list[int] | None = None,
 ) -> tuple[FeatureProjection, Transformer]:
     """Build Transformer encoder."""
 
     feature_projection = FeatureProjection(in_features, embed_dim)
     pos_conv = ConvPositionalEmbedding(embed_dim, pos_conv_kernel, pos_conv_groups, pos_conv_depth)
     layers = nn.ModuleList()
-    for layer_idx in range(num_layers):
-        if conformer_layer_indices is not None and layer_idx + 1 in conformer_layer_indices:
-            conformer_index = conformer_layer_indices.index(layer_idx + 1)
-            layers.append(
-                ConformerLayer(
-                    FeedForward(embed_dim, ff_interm_features, ff_interm_dropout),
-                    SelfAttention(
-                        embed_dim,
-                        num_heads,
-                        qkv_bias=qkv_bias,
-                        dropout=attention_dropout,
-                    ),
-                    ConformerConvolutionModule(
-                        embed_dim,
-                        conformer_kernel_sizes[conformer_index],
-                        conformer_strides[conformer_index],
-                    ),
-                    FeedForward(embed_dim, ff_interm_features, ff_interm_dropout),
-                    dropout,
-                    layer_norm_first=layer_norm_first,
-                )
-            )
-        else:
-            attention = SelfAttention(
-                embed_dim,
-                num_heads,
-                qkv_bias=qkv_bias,
-                dropout=attention_dropout,
-            )
-            feed_forward = FeedForward(embed_dim, ff_interm_features, ff_interm_dropout)
-            layers.append(TransformerLayer(attention, dropout, feed_forward, layer_norm_first=layer_norm_first))
+    for _ in range(num_layers):
+        attention = SelfAttention(
+            embed_dim,
+            num_heads,
+            qkv_bias=qkv_bias,
+            dropout=attention_dropout,
+        )
+        feed_forward = FeedForward(embed_dim, ff_interm_features, ff_interm_dropout)
+        layers.append(TransformerLayer(attention, dropout, feed_forward, layer_norm_first=layer_norm_first))
     transformer = Transformer(
         layers,
         pos_conv,

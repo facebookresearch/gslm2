@@ -5,7 +5,6 @@
 ``PreStepHook`` receives ``(trainer, step, batch)``.
 """
 
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Protocol
 
 from gslm2.checkpoint import remove_frozen_param_groups
@@ -45,25 +44,3 @@ class UpdateEmaHook:
 
     def __call__(self, trainer: "BaseTrainer", step: int, batch: Any, metrics: dict[str, Any]) -> None:  # noqa: ANN401, ARG002
         metrics["ema_decay"] = float(trainer.model.update_ema(step))
-
-
-class ResetBatchLanguageHook:
-    """Reset the per-language batch sampler when ``model.should_reset(step)``."""
-
-    def __init__(
-        self,
-        *,
-        task_interval: int | None,
-        reset_batch_language_method: str,
-        on_reset: Callable[[int, int, str], None] | None = None,
-    ) -> None:
-        self.task_interval = task_interval
-        self.reset_batch_language_method = reset_batch_language_method
-        self._on_reset = on_reset
-
-    def __call__(self, trainer: "BaseTrainer", step: int, batch: Any, metrics: dict[str, Any]) -> None:  # noqa: ANN401, ARG002
-        if self.task_interval is None or not trainer.model.should_reset(step):
-            return
-        if self._on_reset is not None:
-            self._on_reset(step, self.task_interval, self.reset_batch_language_method)
-        trainer.restart_loader = True

@@ -94,7 +94,6 @@ class BaseTrainer(ABC):
         self.records: Records
         self.step: int = 0
         self.epoch: int = 0
-        self.restart_loader: bool = False
         self._data_tick: float = 0.0
         self._batch_tick: float = 0.0
         self._pbar: tqdm | None = None
@@ -336,7 +335,7 @@ class BaseTrainer(ABC):
     # Iteration / batch hooks
     # ------------------------------------------------------------------
     def iterate_batches(self) -> Iterator[Any]:
-        """Yield one batch per training step. Honours ``self.restart_loader``."""
+        """Yield batches across epochs until the final training step."""
         while self.step < self.cfg.optimizer.max_steps:
             self.epoch += 1
             if hasattr(self.loader, "batch_sampler") and hasattr(self.loader.batch_sampler, "set_epoch"):
@@ -344,9 +343,6 @@ class BaseTrainer(ABC):
             for batch in self.loader:
                 self._data_tick = time.perf_counter()
                 yield batch
-                if self.restart_loader:
-                    self.restart_loader = False
-                    break
                 if self.step >= self.cfg.optimizer.max_steps:
                     break
 

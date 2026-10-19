@@ -11,9 +11,6 @@ class DataConfig:
     """Dataloading and data sampling configuration."""
 
     manifest: str | None = None
-    #: Audio backend: "file" (loose/archive from the CSV manifest) or "lance" (manifest is a
-    #: Lance dataset-card name or s3:// URI; audio read from the audio_mono blob).
-    backend: str = "file"
     enable_padding: bool = False
     rand_crop: bool = True
     normalize: bool = True
@@ -31,15 +28,8 @@ class DataConfig:
     by_lang: bool = False
     lang_chunk_size: int | None = None
     sort_by_length: bool = False
-    #: Lance backend only: concurrent within-batch blob reads per worker (via ``__getitems__``).
-    #: Small S3EOZ audio blobs are round-trip-latency-bound, so overlapping a bucketed batch's
-    #: reads across a thread pool (GIL released during S3 I/O + soundfile decode) hides the
-    #: latency without adding worker processes. 0/1 = serial (default; identical to plain reads).
-    lance_prefetch_threads: int = 0
     enable_packing: bool = False
     sampler_type: Literal["bucketize", "packing"] = "bucketize"
-    # Optional VAD-synthesis config (internal segmentation pipeline); None reads the manifest.
-    vad: dict[str, Any] | None = None
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "DataConfig":

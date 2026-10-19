@@ -83,9 +83,7 @@ class OptimizerConfig:
     rsqrt_timescale: int = 10_000
     rsqrt_shift: int = 0
 
-    scheduler: Literal["tristage", "cosine", "linear", "rsqrt", "constant", "cyclic", "cyclic_dual_loss"] = "tristage"
-    upper_envelope_shape: Literal["tristage", "constant", "warmupconstant"] = "tristage"  # for use with CyclicLR
-    within_cycle_warmup_steps: int = 600  # for use with CyclicLR
+    scheduler: Literal["tristage", "cosine", "linear", "rsqrt", "constant"] = "tristage"
 
     exclude_from_optimizer: list[str] = field(default_factory=lambda: ["teacher"])
     to_freeze: list[str] = field(default_factory=lambda: ["feature_extractor", "feature_projection"])

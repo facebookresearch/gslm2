@@ -83,9 +83,8 @@ def test_load_audio_matches_speech_dataset(tiny_manifest: Path) -> None:
 def test_decode_audio_matches_soundfile_on_flac() -> None:
     """``decode_audio`` (torchcodec) matches a ``soundfile`` full read on a mono FLAC blob.
 
-    ``SpeechDatasetFromLance._load_audio`` decodes the FLAC ``audio_mono`` blob through the shared
-    torchcodec ``decode_audio``; this pins that decode bit-for-bit to a ``soundfile`` full read of the
-    same ``PCM_24`` mono blob (the format ingestion writes).
+    File and archive datasets use the shared decoder. This checks it against a
+    ``soundfile`` full read of the same ``PCM_24`` mono blob.
     """
     sample_rate = 16_000
     num_samples = int(1.5 * sample_rate)

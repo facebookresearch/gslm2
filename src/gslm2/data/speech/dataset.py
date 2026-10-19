@@ -2,7 +2,6 @@
 
 import abc
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from os import PathLike
 from typing import override
@@ -123,25 +122,12 @@ class SpeechDataset(Dataset, abc.ABC):
 
     def __init__(self, data_cfg: DataConfig) -> None:
         super().__init__()
-        self._lance_uri: str | None = None
-        self._lance_storage_options: dict | None = None
-        self._prefetch_threads: int = 0
-        self._pool: ThreadPoolExecutor | None = None
-        self.lance_indices: list[int] | None = None
         self.normalize = data_cfg.normalize
         self.manifest = self._load_manifest(data_cfg)
-
-        if data_cfg.vad is not None:
-            raise NotImplementedError(
-                "DataConfig.vad (VAD-synthesis mode) is not supported in gslm2: "
-                "pre-segment the audio and point DataConfig.manifest at the segment manifest."
-            )
         self._init_from_manifest(data_cfg)
 
     def _load_manifest(self, data_cfg: DataConfig) -> pl.DataFrame:
-        if data_cfg.backend == "lance":
-            manifest, self._lance_uri, self._lance_storage_options = _lance_audio_manifest(data_cfg.manifest)
-        elif data_cfg.manifest:
+        if data_cfg.manifest:
             manifest = read_manifest(data_cfg.manifest)
         else:
             raise ValueError("DataConfig.manifest is required")
@@ -157,16 +143,10 @@ class SpeechDataset(Dataset, abc.ABC):
     def _init_from_manifest(self, data_cfg: DataConfig) -> None:
         if data_cfg.sort_by_length:
             self.manifest = self.manifest.sort("num_frames", descending=True)
-        # Lance blobs live on S3EOZ and are round-trip-latency-bound; overlap a bucketed batch's
-        # reads across a per-worker thread pool (see __getitems__). Off for local/archive backends.
-        self._prefetch_threads = data_cfg.lance_prefetch_threads if data_cfg.backend == "lance" else 0
-        self._pool = None
         self.fileid = list(self.manifest["fileid"])
         self.filenames = list(self.manifest["path"])
         self.lengths = list(self.manifest["num_frames"])
         self.lang = list(self.manifest["language"]) if "language" in self.manifest else None
-        # Lance rows are addressed by their original row index, which survives any sort above.
-        self.lance_indices = list(self.manifest["lance_index"]) if data_cfg.backend == "lance" else None
 
     def __len__(self) -> int:
         return len(self.fileid)
@@ -174,22 +154,6 @@ class SpeechDataset(Dataset, abc.ABC):
     @abc.abstractmethod
     def _load_audio(self, index: int) -> tuple[Tensor, int]:
         pass
-
-    def __getitems__(self, indices: list[int]) -> list["Sample"]:
-        """Batch fetch used by torch's DataLoader when a batch_sampler is set. With
-        ``lance_prefetch_threads > 1`` the batch's reads run concurrently on a per-worker
-        (lazily created) thread pool — the S3 I/O + torchcodec decode release the GIL, so the
-        round-trips overlap. Order is preserved; falls back to serial when disabled."""
-        if self._prefetch_threads <= 1 or len(indices) <= 1:
-            return [self[i] for i in indices]
-        if self._pool is None:
-            self._pool = ThreadPoolExecutor(max_workers=self._prefetch_threads)
-        return list(self._pool.map(self.__getitem__, indices))
-
-    def __del__(self) -> None:
-        pool = getattr(self, "_pool", None)  # getattr: __init__ may not have completed
-        if pool is not None:
-            pool.shutdown(wait=False)
 
     def __getitem__(self, index: int) -> Sample:
         waveform, sr = self._load_audio(index)
@@ -279,61 +243,9 @@ def speech_dataset_inference_safe(data_cfg: DataConfig) -> SpeechDataset:
     return SpeechDatasetFromFilesInferenceSafe(data_cfg)
 
 
-def _resolve_lance_uri(spec: str) -> str:
-    """Resolve a Lance audio manifest spec (raw URI, dataset-card name, or ``dataset:enrich-key``)."""
-    from gslm2.data.registry import resolve_manifest_uri
-
-    return resolve_manifest_uri(spec)
-
-
-def _lance_audio_manifest(spec: str) -> tuple[pl.DataFrame, str, dict | None]:
-    """Build a (fileid, path, num_frames, lance_index) manifest from a Lance audio dataset."""
-    import lance
-
-    from gslm2.data.lance_store import storage_options
-    from gslm2.data.s3_creds import ensure_s3_credentials
-
-    uri = _resolve_lance_uri(spec)
-    ensure_s3_credentials(uri)
-    so = storage_options(uri)
-    columns = lance.dataset(uri, storage_options=so).to_table(columns=["recording_id", "num_frames"]).to_pydict()
-    num_rows = len(columns["recording_id"])
-    manifest = pl.DataFrame(
-        {
-            "fileid": columns["recording_id"],
-            "path": columns["recording_id"],
-            "num_frames": columns["num_frames"],
-            "lance_index": list(range(num_rows)),
-        }
-    )
-    return manifest, uri, so
-
-
-class SpeechDatasetFromLance(SpeechDataset):
-    """Reads audio from a Lance dataset's ``audio_mono`` blob instead of loose files."""
-
-    def _load_audio(self, index: int) -> tuple[Tensor, int]:
-        from gslm2.data.common.audio_io import decode_audio
-        from gslm2.data.lance_grain import _DS_CACHE, _open_dataset
-        from gslm2.data.lance_store import open_audio_blob
-        from gslm2.data.s3_creds import ensure_s3_credentials, start_credential_refresh
-
-        ensure_s3_credentials(self._lance_uri)  # idempotent; renews env in spawn workers
-        start_credential_refresh(self._lance_uri, on_refresh=_DS_CACHE.clear)
-        dataset = _open_dataset(self._lance_uri, self._lance_storage_options)
-        # Decode the FLAC ``audio_mono`` blob with torchcodec via the shared ``decode_audio`` (the
-        # same decode the file/archive speech datasets use), returning ``(waveform [C, T] float32,
-        # sample_rate)``.
-        with open_audio_blob(dataset, "audio_mono", self.lance_indices[index]) as blob:
-            return decode_audio(blob.read())
-
-
 def speech_dataset(data_cfg: DataConfig) -> SpeechDataset:
-    if data_cfg.backend == "lance":
-        return SpeechDatasetFromLance(data_cfg)
-    # VAD-synthesis, no manifest to probe, audio comes from disk via VADLoader
     if not data_cfg.manifest:
-        return SpeechDatasetFromFiles(data_cfg)
+        raise ValueError("DataConfig.manifest is required")
     if _is_archive_manifest(data_cfg.manifest):
         return SpeechDatasetFromArchive(data_cfg)
     return SpeechDatasetFromFiles(data_cfg)

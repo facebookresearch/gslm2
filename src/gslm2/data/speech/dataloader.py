@@ -30,13 +30,6 @@ class _IndexedDataset:
     def __getitem__(self, index: int) -> tuple[int, object]:
         return index, self._dataset[index]  # type: ignore[index]
 
-    def __getitems__(self, indices: list[int]) -> list[tuple[int, object]]:
-        # Preserve the wrapped dataset's concurrent batch fetch (Lance prefetch) while still
-        # keying each sample by its dataset index for the SLM unit cache.
-        getter = getattr(self._dataset, "__getitems__", None)
-        samples = getter(indices) if getter else [self._dataset[i] for i in indices]  # type: ignore[index]
-        return list(zip(indices, samples, strict=True))
-
     def __len__(self) -> int:
         return len(self._dataset)  # type: ignore[arg-type]
 
