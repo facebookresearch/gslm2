@@ -14,7 +14,7 @@ from gslm2.data.speech.dataset import SampleBatch
 from .helpers import set_deterministic, tiny_data_config, tiny_masking_config, tiny_spidr_config
 
 REQUIRED_KEYS = ("waveforms",)
-OPTIONAL_KEYS = ("augmented_waveforms", "phonemes", "languages", "attention_mask", "mask")
+OPTIONAL_KEYS = ("phonemes", "languages", "attention_mask", "mask")
 
 
 def _first_batch(manifest: Path) -> SampleBatch:

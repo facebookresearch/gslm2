@@ -14,8 +14,7 @@ from polars.dataframe.frame import DataFrame
 from torch import Tensor
 from torch.utils.data import Dataset
 
-from gslm2.augmentations.speech.batch_augmenter import BatchAugmenter
-from gslm2.config import AUDIO_SAMPLE_RATE, AugmentConfig, DataConfig
+from gslm2.config import AUDIO_SAMPLE_RATE, DataConfig
 from gslm2.data.common.audio_io import decode_audio, normalize_waveform, reject_voxpopuli_ogg_paths
 from gslm2.data.common.utils import bytes_from_archive, read_manifest
 from gslm2.data.speech.tokenizer import Tokenizer, get_tokenizer_for_lang
@@ -32,7 +31,6 @@ _ARCHIVE_MANIFEST_COLUMNS = ("fileid", "path", "num_frames", *ARCHIVE_COLUMNS)
 @dataclass(frozen=True)
 class Sample:
     waveform: Tensor
-    augmented_waveform: Tensor | None = None
     phonemes: Tensor | None = None
     language: list[str | None] | None = None
 
@@ -40,7 +38,6 @@ class Sample:
 @dataclass(frozen=True)
 class SampleBatch:
     waveforms: Tensor
-    augmented_waveforms: Tensor | None = None
     phonemes: Tensor | None = None
     languages: list[str | None] | None = None
     attention_mask: Tensor | None = None
@@ -49,7 +46,6 @@ class SampleBatch:
     def to(self, device: torch.device) -> "SampleBatch":
         return SampleBatch(
             waveforms=self.waveforms.to(device),
-            augmented_waveforms=self.augmented_waveforms.to(device) if self.augmented_waveforms is not None else None,
             phonemes=self.phonemes.to(device) if self.phonemes is not None else None,
             languages=self.languages,
             attention_mask=self.attention_mask.to(device) if self.attention_mask is not None else None,
@@ -135,7 +131,7 @@ def divide_manifest_language_by_chunks(manifest: DataFrame, duration_chunk_size:
 class SpeechDataset(Dataset, abc.ABC):
     """Dataset to load chunks of audio files."""
 
-    def __init__(self, data_cfg: DataConfig, augmentations: list[AugmentConfig] | None = None) -> None:
+    def __init__(self, data_cfg: DataConfig) -> None:
         super().__init__()
         self._lance_uri: str | None = None
         self._lance_storage_options: dict | None = None
@@ -152,8 +148,6 @@ class SpeechDataset(Dataset, abc.ABC):
                 "pre-segment the audio and point DataConfig.manifest at the segment manifest."
             )
         self._init_from_manifest(data_cfg)
-
-        self.sample_augmenter = BatchAugmenter(augmentations, seed=data_cfg.random_seed) if augmentations else None
 
     def _load_manifest(self, data_cfg: DataConfig) -> pl.DataFrame:
         if data_cfg.backend == "lance":
@@ -223,23 +217,20 @@ class SpeechDataset(Dataset, abc.ABC):
         waveform, sr = self._load_audio(index)
         if sr != AUDIO_SAMPLE_RATE or waveform.shape[0] != 1:
             raise ValueError(index)
-        augmented_waveform = self.sample_augmenter(waveform.clone()) if self.sample_augmenter else None
         if self.normalize:
             waveform = normalize_waveform(waveform)
-            augmented_waveform = normalize_waveform(augmented_waveform) if augmented_waveform is not None else None
         tokens = self.phoneme_tokens[self.fileid[index]] if self.phoneme_tokens is not None else None
         language = self.lang[index] if self.lang else None
         return Sample(
             waveform=waveform.squeeze(),
-            augmented_waveform=augmented_waveform.squeeze() if augmented_waveform is not None else None,
             phonemes=tokens,
             language=language,
         )
 
 
 class SpeechDatasetFromArchive(SpeechDataset):
-    def __init__(self, data_cfg: DataConfig, augmentations: list[AugmentConfig] | None = None) -> None:
-        super().__init__(data_cfg, augmentations)
+    def __init__(self, data_cfg: DataConfig) -> None:
+        super().__init__(data_cfg)
         manifest = self.manifest.to_dict()
         self.archives = list(manifest["archive"])
         self.byte_offsets = list(manifest["byte_offset"])
@@ -361,12 +352,12 @@ class SpeechDatasetFromLance(SpeechDataset):
             return decode_audio(blob.read())
 
 
-def speech_dataset(data_cfg: DataConfig, augmentations: list[AugmentConfig] | None = None) -> SpeechDataset:
+def speech_dataset(data_cfg: DataConfig) -> SpeechDataset:
     if data_cfg.backend == "lance":
-        return SpeechDatasetFromLance(data_cfg, augmentations)
+        return SpeechDatasetFromLance(data_cfg)
     # VAD-synthesis, no manifest to probe, audio comes from disk via VADLoader
     if not data_cfg.manifest:
-        return SpeechDatasetFromFiles(data_cfg, augmentations)
+        return SpeechDatasetFromFiles(data_cfg)
     if _is_archive_manifest(data_cfg.manifest):
-        return SpeechDatasetFromArchive(data_cfg, augmentations)
-    return SpeechDatasetFromFiles(data_cfg, augmentations)
+        return SpeechDatasetFromArchive(data_cfg)
+    return SpeechDatasetFromFiles(data_cfg)

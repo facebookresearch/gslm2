@@ -11,7 +11,6 @@ from gslm2.config.common import (
 )
 from gslm2.config.config import BaseConfig, LMConfig, ResumeConfig, SpeechConfig, load_config
 from gslm2.config.data import (
-    AugmentConfig,
     DataConfig,
     OnTheFlyUnitSource,
     PreExtractedUnitSource,
@@ -30,7 +29,6 @@ __all__ = [
     "LM_MODEL_TYPES",
     "ABXSubset",
     "ABXTrainConfig",
-    "AugmentConfig",
     "BaseConfig",
     "BaseModelConfig",
     "CausalLMConfig",

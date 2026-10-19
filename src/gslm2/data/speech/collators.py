@@ -70,7 +70,6 @@ class SpeechCollatorWithMasking:
         *,
         enable_padding: bool = False,
         rand_crop: bool = True,
-        collate_augmentations: bool = False,
         collate_phonemes: bool = False,
     ) -> None:
         self.mask_generator = mask_generator
@@ -78,7 +77,6 @@ class SpeechCollatorWithMasking:
         self.conv_layer_config = conv_layer_config
         self.enable_padding = enable_padding
         self.rand_crop = rand_crop
-        self.collate_augmentations = collate_augmentations
         self.collate_phonemes = collate_phonemes
 
     def process_phoneme_tokens(self, tokens: Tensor, frame_offset: int, num_samples: int) -> Tensor:
@@ -99,9 +97,9 @@ class SpeechCollatorWithMasking:
             return subsampled[:-1]
         raise ValueError(f"Length mismatch: {len(tokens)} vs {output_length}")
 
-    def crop_samples(self, sample: Sample, num_frames: int) -> tuple[Tensor, Tensor | None, Tensor | None, int]:
+    def crop_samples(self, sample: Sample, num_frames: int) -> tuple[Tensor, Tensor | None, int]:
         frame_offset = 0
-        waveform, augmented_waveform, phonemes = sample.waveform, sample.augmented_waveform, sample.phonemes
+        waveform, phonemes = sample.waveform, sample.phonemes
 
         wav_length = waveform.size(0)
         num_frames = min(num_frames, self.max_sample_size)
@@ -111,12 +109,9 @@ class SpeechCollatorWithMasking:
             num_frames = wav_length
 
         waveform = waveform[frame_offset : frame_offset + num_frames]
-        augmented_waveform = (
-            augmented_waveform[frame_offset : frame_offset + num_frames] if self.collate_augmentations else None
-        )
         phonemes = self.process_phoneme_tokens(phonemes, frame_offset, num_frames) if self.collate_phonemes else None
 
-        return waveform, augmented_waveform, phonemes, num_frames
+        return waveform, phonemes, num_frames
 
     def __call__(self, samples: list[Sample]) -> SampleBatch:
         from gslm2.data.speech.dataset import SampleBatch
@@ -124,15 +119,10 @@ class SpeechCollatorWithMasking:
         wavs = [s.waveform for s in samples]
         languages = [s.language for s in samples]
         num_frames = max([len(wav) for wav in wavs]) if self.enable_padding else min([len(wav) for wav in wavs])
-        wav_list, augmented_wav_list, phoneme_list, wav_lengths = zip(
+        wav_list, phoneme_list, wav_lengths = zip(
             *[self.crop_samples(sample, num_frames) for sample in samples], strict=True
         )
         waveforms = torch.nn.utils.rnn.pad_sequence(wav_list, batch_first=True)  # type: ignore[arg-type]
-        augmented_waveforms = (
-            torch.nn.utils.rnn.pad_sequence(augmented_wav_list, batch_first=True)
-            if self.collate_augmentations
-            else None
-        )  # type: ignore[arg-type]
         padded_phonemes = None
         if self.collate_phonemes:
             language_set = set(languages)
@@ -147,7 +137,6 @@ class SpeechCollatorWithMasking:
         mask_indices: Tensor | None = self.mask_generator(padding_mask)[0]
         return SampleBatch(
             waveforms=waveforms,
-            augmented_waveforms=augmented_waveforms,
             phonemes=padded_phonemes,
             languages=languages,
             attention_mask=attention_mask,

@@ -1,19 +1,10 @@
-"""Data loading and augmentation configuration."""
+"""Data loading configuration."""
 
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
 LMTask = Literal["causal"]
-
-
-@dataclass(frozen=True)
-class AugmentConfig:
-    """Data augmentation configuration."""
-
-    name: Literal["pitch_shift", "noise_mix"]
-    prob: float = 0.0
-    augmentation_kwargs: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

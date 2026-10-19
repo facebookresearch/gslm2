@@ -7,7 +7,7 @@ import torch
 import torch.distributed as dist
 from torch.utils.data import DataLoader
 
-from gslm2.config import AugmentConfig, DataConfig, MaskingConfig
+from gslm2.config import DataConfig, MaskingConfig
 from gslm2.data.common.masking.speech import MaskGenerator
 from gslm2.data.speech.collators import SLMAudioCollator, SpeechCollatorWithMasking
 from gslm2.data.speech.dataset import speech_dataset
@@ -49,7 +49,6 @@ def build_dataloader(
     data_cfg: DataConfig,
     mask_cfg: MaskingConfig | None,
     conv_layer_config: list[tuple[int, int, int]],
-    augmentations: list[AugmentConfig] | None = None,
 ) -> DataLoader:
     # mask_cfg=None: on-the-fly SLM audio (raw waveforms + attention mask, no SSL masking).
     collate_fn = (
@@ -65,11 +64,10 @@ def build_dataloader(
             conv_layer_config=conv_layer_config,
             enable_padding=data_cfg.enable_padding,
             rand_crop=data_cfg.rand_crop,
-            collate_augmentations=bool(augmentations),
             collate_phonemes=bool(data_cfg.alignments_path),
         )
     )
-    dataset = speech_dataset(data_cfg, augmentations)
+    dataset = speech_dataset(data_cfg)
     if mask_cfg is None:  # SLM: yield (index, sample) so the trainer can cache units by index
         dataset = _IndexedDataset(dataset)
     if data_cfg.sampler_type == "packing":
