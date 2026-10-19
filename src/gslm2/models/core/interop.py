@@ -1,4 +1,4 @@
-"""Convert pretrained LM state_dicts (OPT / GPT-2 / BERT, HuggingFace or fairseq2) to our parameter names."""
+"""Convert pretrained LM state_dicts (OPT / GPT-2, HuggingFace or fairseq2) to our parameter names."""
 
 from __future__ import annotations
 
@@ -9,25 +9,21 @@ if TYPE_CHECKING:
     import torch
 
 OPTSourceFormat = Literal["hf", "fairseq2", "gpt2_hf", "auto"]
-BERTSourceFormat = Literal["hf"]
 
 
 def _apply(
     state_dict: dict[str, torch.Tensor],
-    rules: list[tuple[re.Pattern[str], object]],
-    ignore: tuple[re.Pattern[str], ...] = (),
+    rules: list[tuple[re.Pattern[str], str]],
 ) -> tuple[dict[str, torch.Tensor], list[str]]:
     out: dict[str, torch.Tensor] = {}
     unmatched: list[str] = []
     for k, v in state_dict.items():
-        if any(p.match(k) for p in ignore):
-            continue
         new_key: str | None = None
         for pat, repl in rules:
             m = pat.match(k)
             if m is None:
                 continue
-            new_key = repl(m) if callable(repl) else pat.sub(repl, k)  # type: ignore[operator]
+            new_key = pat.sub(repl, k)
             break
         if new_key is None:
             unmatched.append(k)
@@ -179,40 +175,3 @@ def convert_multistream_opt_state_dict(
     input); the in-house model's extra frontend stays at init and is unused (load with ``strict=False``).
     """
     return _apply(state_dict, _MULTISTREAM_FS2_KEY_MAP)
-
-
-# --- BERT ---
-
-_BERT_HF_KEY_MAP: list[tuple[re.Pattern[str], object]] = [
-    (re.compile(r"^bert\.embeddings\.word_embeddings\.weight$"), r"embeddings.token_embed.weight"),
-    (re.compile(r"^bert\.embeddings\.position_embeddings\.weight$"), r"embeddings.pos_embed.weight"),
-    (re.compile(r"^bert\.embeddings\.token_type_embeddings\.weight$"), r"embeddings.type_embed.weight"),
-    (re.compile(r"^bert\.embeddings\.LayerNorm\.(weight|bias)$"), r"embeddings.norm.\1"),
-    (
-        re.compile(r"^bert\.encoder\.layer\.(\d+)\.attention\.self\.(query|key|value)\.(weight|bias)$"),
-        lambda m: (
-            f"layers.{m.group(1)}.attn.{ {'query': 'q', 'key': 'k', 'value': 'v'}[m.group(2)] }_proj.{m.group(3)}"
-        ),
-    ),
-    (
-        re.compile(r"^bert\.encoder\.layer\.(\d+)\.attention\.output\.dense\.(weight|bias)$"),
-        r"layers.\1.attn.out_proj.\2",
-    ),
-    (
-        re.compile(r"^bert\.encoder\.layer\.(\d+)\.attention\.output\.LayerNorm\.(weight|bias)$"),
-        r"layers.\1.attn_norm.\2",
-    ),
-    (re.compile(r"^bert\.encoder\.layer\.(\d+)\.intermediate\.dense\.(weight|bias)$"), r"layers.\1.ffn.fc1.\2"),
-    (re.compile(r"^bert\.encoder\.layer\.(\d+)\.output\.dense\.(weight|bias)$"), r"layers.\1.ffn.fc2.\2"),
-    (re.compile(r"^bert\.encoder\.layer\.(\d+)\.output\.LayerNorm\.(weight|bias)$"), r"layers.\1.ffn_norm.\2"),
-    (re.compile(r"^cls\.predictions\.transform\.dense\.(weight|bias)$"), r"mlm_head.dense.\1"),
-    (re.compile(r"^cls\.predictions\.transform\.LayerNorm\.(weight|bias)$"), r"mlm_head.norm.\1"),
-    (re.compile(r"^cls\.predictions\.bias$"), r"mlm_head.decoder.bias"),
-    (re.compile(r"^cls\.predictions\.decoder\.(weight|bias)$"), r"mlm_head.decoder.\1"),
-]
-
-_BERT_HF_IGNORE: tuple[re.Pattern[str], ...] = (
-    re.compile(r"^bert\.pooler\."),
-    re.compile(r"^bert\.embeddings\.position_ids$"),
-    re.compile(r"^cls\.seq_relationship\."),
-)

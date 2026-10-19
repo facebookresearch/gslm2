@@ -108,10 +108,8 @@ def load_frozen_component(
 
     Args:
         checkpoint: Path to a checkpoint (``.pt`` / ``.pth``).
-        component: Attribute name on the model, e.g. ``"target_encoder"``,
-            ``"encoder"``, ``"predictor"``.  For wrapped components
-            (:class:`EncoderWrapper` / :class:`PredictorWrapper`), the inner
-            ``.backbone`` is returned automatically.
+        component: Attribute name on the model, e.g. ``"student"``,
+            ``"teacher"``, or ``"feature_extractor"``.
         model_type: Registry key for the full model.
 
     Returns:
@@ -119,9 +117,6 @@ def load_frozen_component(
     """
     model = build_model(model_type=model_type, checkpoint=checkpoint)
     part = getattr(model, component)
-    # Unwrap EncoderWrapper / PredictorWrapper → bare ViT / ViT-Predictor
-    if hasattr(part, "backbone"):
-        part = part.backbone
     part.eval()
     for p in part.parameters():
         p.requires_grad = False
