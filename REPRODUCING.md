@@ -11,7 +11,6 @@ This file maps each paper table/figure to the commands that produce it.
 | Single-stream SLM | `configs/slm/ll-*.yaml`, `configs/slm/voxpopuli-*.yaml` | `gslm2-train ...` (nodes per config) |
 | GSLM2 multi-stream SLM | `configs/gslm2/ll-*.yaml` | `gslm2-train ...` (extract units first, see below) |
 | Text LM | `configs/textlm/*.yaml` | `gslm2-train ...` (train BPE first, see `DATA.md`) |
-| Scaling (2.5B/6.5B) | `configs/conv/*.yaml` | needs FSDP (not yet in the native trainer) + data access |
 | Duration predictor | `configs/duration/{single,multi}-stream.yaml` | `gslm2-duration-predictor --config ...` |
 | Unit vocoder | `configs/vocoder/{single,multi}-stream.yaml` | `gslm2-unit-vocoder --config ...` |
 

@@ -9,7 +9,6 @@
 | Libriheavy-long (multi-sentence segments) | Text LM | transcripts of Libri-Light |
 | VoxPopuli (En/Fr/De, VAD+LID segmented, 0.5–60 s) | multilingual encoder + SLM | 6Kh per language |
 | LJ Speech (250 held-out utts) | unit vocoder | 24h |
-| Conversational (Emilia + licensed) | scaling study | up to 6Mh (partly non-public) |
 
 ## Manifest format
 
