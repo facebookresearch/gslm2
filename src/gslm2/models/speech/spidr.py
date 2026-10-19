@@ -15,14 +15,10 @@ from torch.nn import functional as F
 from gslm2.config import SpidRConfig
 from gslm2.data.common.packing import pack_features, pack_mask, packed_instance_norm
 from gslm2.data.speech.dataset import SampleBatch
-from gslm2.data.speech.tokenizer import Tokenizer
 from gslm2.environment import pg_ddp
 from gslm2.models.speech.components import (
     FeatureExtractor,
     FeatureProjection,
-    FrameLevelCrossEntropyLoss,
-    LossWeightDefinition,
-    SupervisedClassifier,
     Transformer,
     get_encoder,
     get_feature_extractor,
@@ -125,31 +121,11 @@ class SpidR(nn.Module):
         mask_embedding = nn.Parameter(torch.FloatTensor(cfg.encoder_embed_dim))
         nn.init.uniform_(mask_embedding)
         self.register_parameter("mask_embedding", mask_embedding)  # type: ignore[attr-defined]
-        if cfg.supervised_loss_weight > 0.0 or cfg.supervised_every_step:
-            self.supervised_loss_weight = cfg.supervised_loss_weight
-            self.prepare_for_supervised_training(cfg)
-        self.supervised_layer = cfg.supervised_layer
 
     def train(self, mode: bool = True) -> "SpidR":  # noqa: FBT001, FBT002
         super().train(mode)
         self.teacher.eval()
         return self
-
-    def prepare_for_supervised_training(self, cfg: SpidRConfig) -> None:
-        self.tokenizers = {}
-        self.supervised_classifiers = torch.nn.ModuleDict()
-        for language in cfg.supervised_languages:
-            self.initialize_supervised_language_components(language, cfg.encoder_embed_dim, cfg.num_supervised_layers)
-        self.supervised_criterion = FrameLevelCrossEntropyLoss()
-
-    def initialize_supervised_language_components(
-        self, language: str, encoder_embed_dim: int, num_supervised_layers: int
-    ) -> None:
-        logger.info("Initializing tokenizers and classifier heads for %s", language)
-        self.tokenizers[language] = Tokenizer(language)
-        self.supervised_classifiers[language] = SupervisedClassifier(
-            encoder_embed_dim, self.tokenizers[language].vocab_size, num_supervised_layers
-        )
 
     @property
     def num_codebooks(self) -> int:
@@ -243,12 +219,7 @@ class SpidR(nn.Module):
             preds.append(pred)
         return preds
 
-    def forward(
-        self,
-        batch: SampleBatch,
-        *,
-        loss_weights: LossWeightDefinition | None = None,
-    ) -> tuple[Tensor, Tensor, dict[str, Tensor]]:
+    def forward(self, batch: SampleBatch) -> tuple[Tensor, dict[str, Tensor]]:
         feats = self.feature_extractor(batch.waveforms)
         feats = self.feature_projection(feats)
         x = feats.clone()
@@ -279,42 +250,24 @@ class SpidR(nn.Module):
             x, attention_mask, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen
         )
         mask_indices = torch.nonzero(mask, as_tuple=True)
-        loss_weights = loss_weights if loss_weights else LossWeightDefinition()
-
-        ssl_losses = torch.zeros(1, device=x.device)
-        loss_dict: dict[str, Tensor] = {}
-
-        if loss_weights.ssl > 0.0:
-            with torch.no_grad():
-                teacher_intermediate_outputs, _ = self.teacher.get_intermediate_outputs(
-                    feats, attention_mask, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen
-                )
-                targets = teacher_intermediate_outputs[-self.num_codebooks :]
-                if cu_seqlens is not None:
-                    targets = [
-                        packed_instance_norm(tl.float().transpose(1, 2), cu_seqlens).transpose(1, 2)[mask_indices]
-                        for tl in targets
-                    ]
-                else:
-                    targets = [
-                        F.instance_norm(tl.float().transpose(1, 2)).transpose(1, 2)[mask_indices] for tl in targets
-                    ]
-
-            ssl_losses, loss_dict = self.get_ssl_loss(
-                student_intermediate_outputs, student_final_pred, targets, mask_indices
+        with torch.no_grad():
+            teacher_intermediate_outputs, _ = self.teacher.get_intermediate_outputs(
+                feats, attention_mask, cu_seqlens=cu_seqlens, max_seqlen=max_seqlen
             )
+            targets = teacher_intermediate_outputs[-self.num_codebooks :]
+            if cu_seqlens is not None:
+                targets = [
+                    packed_instance_norm(tl.float().transpose(1, 2), cu_seqlens).transpose(1, 2)[mask_indices]
+                    for tl in targets
+                ]
+            else:
+                targets = [F.instance_norm(tl.float().transpose(1, 2)).transpose(1, 2)[mask_indices] for tl in targets]
 
-        supervision_loss = (
-            self.get_supervision_loss(student_intermediate_outputs, batch.phonemes, batch.languages)
-            if loss_weights.supervised > 0.0
-            else torch.tensor(0.0, device=x.device)
+        ssl_losses, loss_dict = self.get_ssl_loss(
+            student_intermediate_outputs, student_final_pred, targets, mask_indices
         )
 
-        return (
-            ssl_losses,
-            supervision_loss,
-            loss_dict,
-        )
+        return ssl_losses, loss_dict
 
     def get_ssl_loss(
         self,
@@ -416,22 +369,6 @@ class SpidR(nn.Module):
 
         return ssl_loss_total / self.num_codebooks, loss_dict
 
-    def get_supervision_loss(
-        self, student_intermediate_outputs: list[Tensor], phonemes: Tensor, languages: list[str]
-    ) -> Tensor:
-        assert phonemes is not None, "Supervised training requires phoneme alignment input."
-        languages_set = set(languages)
-        assert len(languages_set) == 1, (
-            "Supervised training requires a single language input. Ensure you are language batching."
-        )
-        language = languages_set.pop()
-        assert language in self.supervised_classifiers, (
-            "Language %s not initialized for supervised training.",
-            language,
-        )
-        logits = self.supervised_classifiers[language](student_intermediate_outputs[self.supervised_layer - 1])
-        return self.supervised_criterion(logits, phonemes, self.tokenizers[language].ignore_id)
-
 
 def spidr_factory(
     cfg: SpidRConfig,
@@ -457,14 +394,6 @@ def spidr_factory(
         layer_drop=cfg.encoder_layer_drop,
         layer_norm_first=cfg.encoder_layer_norm_first,
         qkv_bias=cfg.encoder_qkv_bias,
-        disable_pos_conv=cfg.encoder_disable_pos_conv,
-        rope=cfg.encoder_rope,
-        rope_theta=cfg.encoder_rope_theta,
-        attention_bias=cfg.encoder_attention_bias,
-        front_ema=cfg.encoder_front_ema,
-        front_local_attn=cfg.encoder_front_local_attn,
-        front_local_attn_window=cfg.encoder_front_local_attn_window,
-        front_norm=cfg.encoder_front_norm,
     )
     heads = get_heads(
         embed_dim=cfg.encoder_embed_dim,

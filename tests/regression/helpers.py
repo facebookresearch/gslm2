@@ -26,7 +26,6 @@ TINY_NUM_SAMPLES = 256
 TINY_DURATION_SECONDS = 2.0
 TINY_AMPLITUDE = 0.1
 TINY_LANGUAGE = "en_arpa"
-ALIGNMENT_HZ = 100
 
 
 def write_wav(path: Path, wav: torch.Tensor, sample_rate: int = AUDIO_SAMPLE_RATE) -> None:
@@ -56,7 +55,7 @@ def pick_free_port() -> int:
         return s.getsockname()[1]
 
 
-def torchrun_env(workdir: Path, manifest: Path, alignments: Path | None = None) -> dict[str, str]:
+def torchrun_env(workdir: Path, manifest: Path) -> dict[str, str]:
     """Single-rank torchrun env with PYTHONPATH pinned to this checkout's src/."""
     env = os.environ.copy()
     env.update(
@@ -70,8 +69,6 @@ def torchrun_env(workdir: Path, manifest: Path, alignments: Path | None = None) 
             "METASR_REGRESSION_WORKDIR": str(workdir),
         }
     )
-    if alignments is not None:
-        env["METASR_REGRESSION_ALIGNMENTS"] = str(alignments)
     env["PYTHONPATH"] = os.pathsep.join(p for p in (str(REPO_ROOT / "src"), env.get("PYTHONPATH", "")) if p)
     return env
 

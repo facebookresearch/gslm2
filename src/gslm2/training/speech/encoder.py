@@ -41,8 +41,6 @@ class SpeechSSLTrainer(BaseTrainer):
     """SSL leaf trainer for speech encoder pretraining."""
 
     def __init__(self, cfg: SpeechConfig) -> None:
-        if cfg.model.supervised_loss_weight or cfg.model.supervised_every_step:
-            raise ValueError("Supervised co-training is not supported by the SSL encoder trainer.")
         pre_step_hooks = []
         freeze_step = getattr(cfg.model, "freeze_step", None)
         if freeze_step is not None:
@@ -64,7 +62,7 @@ class SpeechSSLTrainer(BaseTrainer):
 
     def training_step(self, batch: Any, step: int) -> tuple[torch.Tensor, dict[str, Any]]:  # noqa: ANN401, ARG002
         with torch.autocast(self.device.type, self.dtype, self.cfg.optimizer.mixed_precision):
-            loss, _, outputs = self.ddp_model(batch.to(self.device))
+            loss, outputs = self.ddp_model(batch.to(self.device))
         # All-reduce by global frame count.
         num_frames = torch.tensor(loss.size(0), dtype=torch.long, device=self.device)
         dist.all_reduce(num_frames)

@@ -49,7 +49,6 @@ EVAL_METRIC_KEYS: frozenset[str] = frozenset(
         "dev_loss",
         "loss",
         "ssl_loss",
-        "supervised_loss",
         "accuracy",
         "accuracy_norm",
         "npairs",

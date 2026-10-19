@@ -17,7 +17,6 @@ from torch.utils.data import Dataset
 from gslm2.config import AUDIO_SAMPLE_RATE, DataConfig
 from gslm2.data.common.audio_io import decode_audio, normalize_waveform, reject_voxpopuli_ogg_paths
 from gslm2.data.common.utils import bytes_from_archive, read_manifest
-from gslm2.data.speech.tokenizer import Tokenizer, get_tokenizer_for_lang
 
 logger = logging.getLogger()
 
@@ -31,14 +30,12 @@ _ARCHIVE_MANIFEST_COLUMNS = ("fileid", "path", "num_frames", *ARCHIVE_COLUMNS)
 @dataclass(frozen=True)
 class Sample:
     waveform: Tensor
-    phonemes: Tensor | None = None
     language: list[str | None] | None = None
 
 
 @dataclass(frozen=True)
 class SampleBatch:
     waveforms: Tensor
-    phonemes: Tensor | None = None
     languages: list[str | None] | None = None
     attention_mask: Tensor | None = None
     mask: Tensor | None = None
@@ -46,17 +43,10 @@ class SampleBatch:
     def to(self, device: torch.device) -> "SampleBatch":
         return SampleBatch(
             waveforms=self.waveforms.to(device),
-            phonemes=self.phonemes.to(device) if self.phonemes is not None else None,
             languages=self.languages,
             attention_mask=self.attention_mask.to(device) if self.attention_mask is not None else None,
             mask=self.mask.to(device) if self.mask is not None else None,
         )
-
-
-def read_alignments(alignments_path: PathLike) -> dict[str, tuple[str, str]]:
-    alignments = pd.read_csv(alignments_path, low_memory=False)
-    assert "language" in alignments.columns, "Need language column in alignments to identify phoneme tokenizer."
-    return {row["fileid"]: (row["phones"], row["language"]) for _, row in alignments.iterrows()}
 
 
 def get_number_of_data_chunks(manifest_file: str, duration_chunk_size: int | None) -> int:
@@ -140,7 +130,6 @@ class SpeechDataset(Dataset, abc.ABC):
         self.lance_indices: list[int] | None = None
         self.normalize = data_cfg.normalize
         self.manifest = self._load_manifest(data_cfg)
-        self.phoneme_tokens = self._load_alignments(data_cfg)
 
         if data_cfg.vad is not None:
             raise NotImplementedError(
@@ -164,17 +153,6 @@ class SpeechDataset(Dataset, abc.ABC):
                 manifest, data_cfg.lang_chunk_size, seed=data_cfg.random_seed
             )
         return manifest
-
-    @staticmethod
-    def _load_alignments(data_cfg: DataConfig) -> dict[str, Tensor] | None:
-        if not data_cfg.alignments_path:
-            return None
-        alignments = read_alignments(data_cfg.alignments_path)
-        tokenizers: dict[str, Tokenizer] = {}
-        return {
-            fileid: get_tokenizer_for_lang(tokenizers, language).encode(phonemes)
-            for fileid, (phonemes, language) in alignments.items()
-        }
 
     def _init_from_manifest(self, data_cfg: DataConfig) -> None:
         if data_cfg.sort_by_length:
@@ -219,11 +197,9 @@ class SpeechDataset(Dataset, abc.ABC):
             raise ValueError(index)
         if self.normalize:
             waveform = normalize_waveform(waveform)
-        tokens = self.phoneme_tokens[self.fileid[index]] if self.phoneme_tokens is not None else None
         language = self.lang[index] if self.lang else None
         return Sample(
             waveform=waveform.squeeze(),
-            phonemes=tokens,
             language=language,
         )
 

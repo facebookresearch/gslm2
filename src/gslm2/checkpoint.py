@@ -100,7 +100,6 @@ class Checkpoint:
     optimizer: Optimizer
     scheduler: LRScheduler
     epoch: torch.Tensor
-    supervised_epoch: torch.Tensor
     step: torch.Tensor
 
 
@@ -138,10 +137,6 @@ class Checkpointer:
         return self._state.epoch
 
     @property
-    def supervised_epoch(self) -> torch.Tensor:
-        return self._state.supervised_epoch
-
-    @property
     def last(self) -> Path | None:
         if self._path is not None:
             return self._path
@@ -155,17 +150,13 @@ class Checkpointer:
         return self.folder / "metrics.jsonl"
 
     def init_state(self, model: nn.Module, optimizer: Optimizer, scheduler: LRScheduler) -> None:
-        epoch, supervised_epoch, step = (
-            torch.zeros(1, dtype=torch.long),
-            torch.zeros(1, dtype=torch.long),
-            torch.zeros(1, dtype=torch.long),
-        )
+        epoch = torch.zeros(1, dtype=torch.long)
+        step = torch.zeros(1, dtype=torch.long)
         ckpt = Checkpoint(
             model=model,
             optimizer=optimizer,
             scheduler=scheduler,
             epoch=epoch,
-            supervised_epoch=supervised_epoch,
             step=step,
         )
         self._state = ckpt
@@ -233,19 +224,17 @@ class Checkpointer:
         stem = path.stem
         return int(stem.removeprefix("step_")) if stem.startswith("step_") else None
 
-    def _save_to_path(self, path: Path, step: int, epoch: int, supervised_epoch: int) -> bool:
+    def _save_to_path(self, path: Path, step: int, epoch: int) -> bool:
         if self.disable:
             return False
         self._state.step.fill_(step)
         self._state.epoch.fill_(epoch)
-        self._state.supervised_epoch.fill_(supervised_epoch)
         torch.save(
             {
                 "model": self._state.model.state_dict(),
                 "optimizer": self._state.optimizer.state_dict(),
                 "scheduler": self._state.scheduler.state_dict(),
                 "epoch": self.epoch,
-                "supervised_epoch": self.supervised_epoch,
                 "step": self.step,
             },
             path,
@@ -254,19 +243,19 @@ class Checkpointer:
         self._delete_old_checkpoints()
         return True
 
-    def save(self, step: int, epoch: int, *, supervised_epoch: int = 0, force: bool = False) -> bool:
+    def save(self, step: int, epoch: int, *, force: bool = False) -> bool:
         should_save = (not self.disable) and (force or step % self.interval == 0)
         if not should_save:
             return False
-        return self._save_to_path(self.folder / f"step_{step}.pt", step, epoch, supervised_epoch)
+        return self._save_to_path(self.folder / f"step_{step}.pt", step, epoch)
 
-    def save_latest(self, step: int, epoch: int, *, supervised_epoch: int = 0, interval: int = 300) -> bool:
+    def save_latest(self, step: int, epoch: int, *, interval: int = 300) -> bool:
         if self.disable or step % interval != 0:
             return False
-        return self._save_to_path(self.folder / "latest.pt", step, epoch, supervised_epoch)
+        return self._save_to_path(self.folder / "latest.pt", step, epoch)
 
-    def save_final(self, step: int, epoch: int, *, supervised_epoch: int = 0) -> bool:
-        return self._save_to_path(self.folder / "final.pt", step, epoch, supervised_epoch)
+    def save_final(self, step: int, epoch: int) -> bool:
+        return self._save_to_path(self.folder / "final.pt", step, epoch)
 
     def _load_from_path(self, path: Path) -> bool:
         if self.disable or not path.is_file():
@@ -276,7 +265,6 @@ class Checkpointer:
         ckpt = torch.load(path, map_location=torch.device("cpu"), weights_only=False)
         self._state.step = ckpt["step"]
         self._state.epoch = ckpt["epoch"]
-        self._state.supervised_epoch = ckpt["supervised_epoch"]
         self._state.scheduler.load_state_dict(ckpt["scheduler"])
 
         consume_prefix_in_state_dict_if_present(ckpt["model"], "module.")

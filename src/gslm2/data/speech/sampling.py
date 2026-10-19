@@ -3,7 +3,7 @@
 Provides :class:`BucketizeBatchSampler` (length-bucketed batching),
 :class:`DistributedBatchSampler` (distributed wrapper with per-language
 task support), and :class:`SpeechCollatorWithMasking` (padding, cropping,
-masking, and optional phoneme alignment).
+and masking).
 """
 
 from __future__ import annotations
@@ -24,8 +24,6 @@ if TYPE_CHECKING:
     from gslm2.data.speech.dataset import SpeechDataset
 
 logger = logging.getLogger()
-
-ALIGNMENT_FREQ = 100  # in Hz
 
 
 def _verify_lengths(min_len: int, max_len: int, batch_size: int | None, max_token_count: int | None) -> None:

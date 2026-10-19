@@ -1,7 +1,6 @@
 """Data loading configuration."""
 
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Literal
 
 LMTask = Literal["causal"]
@@ -29,7 +28,6 @@ class DataConfig:
     persistent_workers: bool = True
     random_seed: int = 0
     bucket_method: Literal["uniform", "percentile"] = "uniform"
-    alignments_path: Path | None = None
     by_lang: bool = False
     lang_chunk_size: int | None = None
     sort_by_length: bool = False

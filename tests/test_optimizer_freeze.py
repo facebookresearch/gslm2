@@ -7,6 +7,7 @@ toggle (``no_decay_on_norm_bias``).
 
 from __future__ import annotations
 
+import pytest
 from torch import nn
 
 from gslm2.checkpoint import remove_frozen_param_groups
@@ -118,7 +119,8 @@ def test_scheduler_prune_is_idempotent() -> None:
     assert sched.get_last_lr() == ref_sched.get_last_lr()[:n_groups]
 
 
-def test_boundary_resume_defers_drop_to_hook(tmp_path) -> None:
+@pytest.mark.parametrize("legacy_metadata", [False, True])
+def test_boundary_resume_defers_drop_to_hook(tmp_path, legacy_metadata) -> None:
     """Resuming from a boundary checkpoint (full groups, step == freeze_step)
     must NOT drop at load: the hook drops + prunes the scheduler when the
     step runs. Dropping at load breaks the group-count assert and the
@@ -127,7 +129,7 @@ def test_boundary_resume_defers_drop_to_hook(tmp_path) -> None:
 
     import torch
 
-    from gslm2.checkpoint import Checkpoint, Checkpointer
+    from gslm2.checkpoint import Checkpointer
     from gslm2.training.hooks import FreezeParamGroupHook
 
     model = _TinyModel()
@@ -136,24 +138,23 @@ def test_boundary_resume_defers_drop_to_hook(tmp_path) -> None:
     opt, sched = build_optimizer(model, OptimizerConfig())
     assert len(opt.param_groups) == 2
     ckpt_path = tmp_path / "step_200000.pt"
-    torch.save(
-        {
-            "model": model.state_dict(),
-            "optimizer": opt.state_dict(),
-            "scheduler": sched.state_dict(),
-            "epoch": torch.tensor([0]),
-            "supervised_epoch": torch.tensor([0]),
-            "step": torch.tensor([200_000]),
-        },
-        ckpt_path,
-    )
+    payload = {
+        "model": model.state_dict(),
+        "optimizer": opt.state_dict(),
+        "scheduler": sched.state_dict(),
+        "epoch": torch.tensor([0]),
+        "step": torch.tensor([200_000]),
+    }
+    if legacy_metadata:
+        payload["supervised_epoch"] = torch.tensor([0])  # Obsolete metadata in older checkpoints is ignored.
+    torch.save(payload, ckpt_path)
 
     fresh = _TinyModel()
     fresh.freeze_step = 200_000
     fresh.register_buffer("current_step", torch.tensor([0]))
     fresh_opt, fresh_sched = build_optimizer(fresh, OptimizerConfig())
     ckptr = Checkpointer(tmp_path, interval=1)
-    ckptr._state = Checkpoint(fresh, fresh_opt, fresh_sched, torch.tensor([0]), torch.tensor([0]), torch.tensor([0]))
+    ckptr.init_state(fresh, fresh_opt, fresh_sched)
     assert ckptr._load_from_path(ckpt_path)
     assert len(fresh_opt.param_groups) == 2, "boundary ckpt must keep full groups at load"
 

@@ -1,21 +1,16 @@
-"""Speech collation and length utilities (padding, cropping, masking, phoneme alignment)."""
+"""Speech collation and length utilities (padding, cropping, masking)."""
 
 from __future__ import annotations
 
-import functools
 from typing import TYPE_CHECKING
 
 import torch
 from torch import Tensor
 
-from gslm2.config import AUDIO_SAMPLE_RATE
 from gslm2.data.common.masking.speech import MaskGenerator, build_attention_mask, build_padding_mask
-from gslm2.data.speech.tokenizer import Tokenizer
 
 if TYPE_CHECKING:
     from gslm2.data.speech.dataset import Sample, SampleBatch
-
-ALIGNMENT_FREQ = 100  # in Hz
 
 
 def conv_length(conv_layer_config: list[tuple[int, int, int]], length: Tensor) -> Tensor:
@@ -70,36 +65,16 @@ class SpeechCollatorWithMasking:
         *,
         enable_padding: bool = False,
         rand_crop: bool = True,
-        collate_phonemes: bool = False,
     ) -> None:
         self.mask_generator = mask_generator
         self.max_sample_size = max_sample_size
         self.conv_layer_config = conv_layer_config
         self.enable_padding = enable_padding
         self.rand_crop = rand_crop
-        self.collate_phonemes = collate_phonemes
 
-    def process_phoneme_tokens(self, tokens: Tensor, frame_offset: int, num_samples: int) -> Tensor:
-        model_downsampling = functools.reduce(lambda x, y: x * y, [layer[2] for layer in self.conv_layer_config])
-        model_freq = AUDIO_SAMPLE_RATE // model_downsampling  # in Hz
-        alignment_downsampling = AUDIO_SAMPLE_RATE // ALIGNMENT_FREQ
-
-        phoneme_frame_offset = frame_offset // alignment_downsampling
-        phoneme_num_samples = num_samples // alignment_downsampling
-        tokens = tokens[phoneme_frame_offset : phoneme_frame_offset + phoneme_num_samples]
-
-        subsample = ALIGNMENT_FREQ // model_freq
-        subsampled = tokens[::subsample]
-        output_length = conv_length(self.conv_layer_config, num_samples)
-        if len(subsampled) == output_length:
-            return subsampled
-        if len(subsampled) == output_length + 1:
-            return subsampled[:-1]
-        raise ValueError(f"Length mismatch: {len(tokens)} vs {output_length}")
-
-    def crop_samples(self, sample: Sample, num_frames: int) -> tuple[Tensor, Tensor | None, int]:
+    def crop_samples(self, sample: Sample, num_frames: int) -> tuple[Tensor, int]:
         frame_offset = 0
-        waveform, phonemes = sample.waveform, sample.phonemes
+        waveform = sample.waveform
 
         wav_length = waveform.size(0)
         num_frames = min(num_frames, self.max_sample_size)
@@ -109,9 +84,8 @@ class SpeechCollatorWithMasking:
             num_frames = wav_length
 
         waveform = waveform[frame_offset : frame_offset + num_frames]
-        phonemes = self.process_phoneme_tokens(phonemes, frame_offset, num_frames) if self.collate_phonemes else None
 
-        return waveform, phonemes, num_frames
+        return waveform, num_frames
 
     def __call__(self, samples: list[Sample]) -> SampleBatch:
         from gslm2.data.speech.dataset import SampleBatch
@@ -119,25 +93,13 @@ class SpeechCollatorWithMasking:
         wavs = [s.waveform for s in samples]
         languages = [s.language for s in samples]
         num_frames = max([len(wav) for wav in wavs]) if self.enable_padding else min([len(wav) for wav in wavs])
-        wav_list, phoneme_list, wav_lengths = zip(
-            *[self.crop_samples(sample, num_frames) for sample in samples], strict=True
-        )
+        wav_list, wav_lengths = zip(*[self.crop_samples(sample, num_frames) for sample in samples], strict=True)
         waveforms = torch.nn.utils.rnn.pad_sequence(wav_list, batch_first=True)  # type: ignore[arg-type]
-        padded_phonemes = None
-        if self.collate_phonemes:
-            language_set = set(languages)
-            assert len(language_set) == 1, "Please perform language batching if collating phonemes."
-            language = language_set.pop()
-            padded_phonemes = torch.nn.utils.rnn.pad_sequence(
-                phoneme_list, batch_first=True, padding_value=Tokenizer(language).ignore_id
-            )
-
         lengths = conv_length(self.conv_layer_config, torch.tensor(wav_lengths))
         padding_mask, attention_mask = build_padding_mask(lengths), build_attention_mask(lengths)
         mask_indices: Tensor | None = self.mask_generator(padding_mask)[0]
         return SampleBatch(
             waveforms=waveforms,
-            phonemes=padded_phonemes,
             languages=languages,
             attention_mask=attention_mask,
             mask=mask_indices,

@@ -64,7 +64,6 @@ def build_dataloader(
             conv_layer_config=conv_layer_config,
             enable_padding=data_cfg.enable_padding,
             rand_crop=data_cfg.rand_crop,
-            collate_phonemes=bool(data_cfg.alignments_path),
         )
     )
     dataset = speech_dataset(data_cfg)
