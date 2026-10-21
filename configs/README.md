@@ -13,8 +13,7 @@ Launch encoder training with `gslm2-train-encoder`.
 Public LM experiments live under [`lm/`](lm/README.md): single-stream SLM,
 multi-stream GSLM2, and text LM templates with preparation, training, and
 evaluation settings. Replace `/path/to/...` with your own paths and pass one
-config to the LM steps launcher. Standalone training recipes are under
-`lm/recipes/`.
+config to the LM steps launcher.
 
 [`yosukeh/lm/`](yosukeh/lm/README.md) contains end-to-end experiments derived
 from Yosukeh's internal GSLM2 configs, with preparation settings and dataset

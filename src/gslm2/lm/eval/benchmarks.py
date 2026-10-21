@@ -324,7 +324,7 @@ def slm_eval_models(cfg: EvalConfig) -> None:
 def main() -> None:
     """Score fairseq2 speech-unit or text LM checkpoints on tokenized pairs."""
     parser = argparse.ArgumentParser(description="Evaluate a fairseq2 language model on tokenized benchmark pairs.")
-    parser.add_argument("--config-file", type=Path, help="Standalone fairseq2 recipe YAML under configs/lm/recipes/.")
+    parser.add_argument("--config-file", type=Path, help="Standalone fairseq2 recipe YAML.")
     parser.add_argument("--checkpoint", type=Path, help="Model checkpoint file or fairseq2 step directory.")
     parser.add_argument("--pairs-dir", type=Path, help="Directory containing benchmark JSONL pair manifests.")
     parser.add_argument(

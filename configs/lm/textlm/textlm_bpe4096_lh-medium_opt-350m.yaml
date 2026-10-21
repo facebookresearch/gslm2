@@ -1,4 +1,3 @@
-# Public template based on configs/yosukeh/lm/textlm/textlm_bpe4096_lh-medium_opt-350m.yaml.
 # Replace /path/to/... with your data, checkpoint, and output paths.
 # Resources: 1 nodes x 8 GPUs; max_num_tokens is per rank.
 # Prepare data, train, and evaluate in one job:

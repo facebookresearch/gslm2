@@ -60,18 +60,5 @@ layer `7/` or `5/` and text files directly under the run root. The data
 directory contains `train/`, `valid/`, `test/pairs/`, and model checkpoints in
 `ckpt/`. Prepared data and checkpoints are retained after evaluation.
 
-## Standalone recipes
-
-The existing training-only recipe templates, including VoxPopuli, are under
-`recipes/{slm,gslm2,textlm}/`. Set `dataset.path` to your pre-extracted
-`train/` and `valid/` shards, then run the fairseq2 recipe directly:
-
-```bash
-conda activate gslm2_lm
-torchrun --standalone --nproc_per_node=8 \
-  -m gslm2.lm.recipes.train.run_recipe \
-  --config-file configs/lm/recipes/slm/ll-600h-90m.yaml runs/slm
-```
-
 Speech IDs use `dataset.unit_offset=2`; text tokenizer IDs use offset 0.
-See [REPRODUCING.md](../../REPRODUCING.md) for standalone checkpoint scoring.
+See [REPRODUCING.md](../../REPRODUCING.md) for running the pipeline stages directly.

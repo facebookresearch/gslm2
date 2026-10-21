@@ -1,4 +1,3 @@
-# Public template based on configs/yosukeh/lm/slm/spidr2-slm_codes-l7_ll-60kh_1b.yaml.
 # Replace /path/to/... with your data, checkpoint, and output paths.
 # Resources: 2 nodes x 8 GPUs; max_num_tokens is per rank.
 # Prepare data, train, and evaluate in one job:

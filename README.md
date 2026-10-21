@@ -20,7 +20,7 @@ use fairseq2. The encoder-to-SLM boundary is a pre-extracted unit manifest.
   Slurm submission utilities.
 - `configs/encoder/` — native encoder training configs.
 - `configs/lm/` — public SLM, text LM, and multi-stream experiments with
-  editable paths; standalone fairseq2 recipes are under `configs/lm/recipes/`.
+  editable paths.
 - `configs/misc/` — full-rate unit extraction, duration, and vocoder configs.
 - `scripts/` — launchers, analysis, and figure scripts.
 
@@ -98,7 +98,7 @@ invokes the underlying fairseq2 recipe CLI. The supported LM launcher is
 `scripts/launchers/slurm_lm_steps.sbatch`; it accepts one
 [end-to-end experiment config](configs/lm/README.md). Replace the template
 paths and set your Slurm account and QoS before submitting. See
-[LM configs](configs/lm/README.md) for launcher arguments and recipe config usage.
+[LM configs](configs/lm/README.md) for launcher arguments and path configuration.
 
 See [REPRODUCING.md](REPRODUCING.md) for commands, [DATA.md](DATA.md) for
 manifest formats, [SYNTHESIS.md](SYNTHESIS.md) for duration/vocoder training

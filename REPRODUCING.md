@@ -11,7 +11,6 @@ This file maps each paper table/figure to the commands that produce it.
 | Single-stream SLM | `configs/lm/slm/*.yaml` | LM steps launcher below |
 | GSLM2 multi-stream SLM | `configs/lm/gslm2/*.yaml` | LM steps launcher below |
 | Text LM | `configs/lm/textlm/*.yaml` | LM steps launcher below |
-| VoxPopuli SLM / text LM | `configs/lm/recipes/{slm,textlm}/voxpopuli-*.yaml` | fairseq2 recipe CLI below |
 
 ## Unit extraction (SLM / GSLM2 inputs)
 
@@ -54,50 +53,12 @@ python scripts/plot_pnmi_layerwise.py codebook-out/ -o pnmi.png
 
 ## LM training and evaluation (fairseq2)
 
-Use `scripts/launchers/slurm_lm_steps.sbatch` for Slurm jobs (see below).
-The following are the underlying recipe training and evaluation commands.
+Use the experiments under `configs/lm/{slm,gslm2,textlm}/`. Replace the
+template paths with your own (see [LM configs](configs/lm/README.md)) and
+install the `lm` extra in `gslm2_lm` using the
+[installation guidance](README.md#installation).
 
-Prepare token shards (see `DATA.md`), set `dataset.path` in the recipe, then run
-in the `gslm2_lm` environment installed with the `lm` extra (see
-[installation guidance](README.md#installation)):
-
-```bash
-conda activate gslm2_lm
-# The same recipe entry point handles SLM, textlm, and GSLM2 configs.
-torchrun --standalone --nproc_per_node=8 \
-  -m gslm2.lm.recipes.train.run_recipe \
-  --config-file configs/lm/recipes/slm/ll-6kh-300m.yaml runs/slm-ll-6kh
-```
-
-Validation and checkpoint selection use fairseq2's recipe regime. For benchmark
-scoring, pass tokenized JSONL pairs (speech units or text tokenizer IDs):
-
-```bash
-gslm2-eval-slm --config-file configs/lm/recipes/slm/ll-6kh-300m.yaml \
-  --checkpoint runs/slm-ll-6kh/checkpoints/step_25000 \
-  --pairs-dir /path/to/tokenized-pairs \
-  --benchmarks lexical_test_invocab lexical_test_oov syntactic_test sSC tSC \
-  --out results/slm-ll-6kh.jsonl
-```
-
-The same evaluation command accepts `configs/lm/recipes/textlm/*.yaml` and
-`configs/lm/recipes/gslm2/*.yaml`. Native LM checkpoints/configs from the previous layout
-are no longer accepted by these LM commands.
-
-Build audio pair manifests from ZeroSpeech downloads:
-
-```bash
-python scripts/create_slm_pair_manifests.py --data-dir /path/to/sLM21-dataset \
-  --output-dir /path/to/sLM21-pairs
-```
-
-Unit extraction writes test JSONL manifests. Pair them with
-`gslm2.lm.eval.create_pairs.create_paired_file`. Multi-stream units use
-`|`-joined streams in evaluation pairs.
-
-For the public experiments under `configs/lm`, replace the template paths
-with your own and submit one config to run
-preparation, training, and evaluation automatically:
+Submit one config to prepare data, train and validate, and evaluate:
 
 ```bash
 sbatch --account=ACCOUNT --qos=QOS --nodes=4 \
@@ -105,8 +66,35 @@ sbatch --account=ACCOUNT --qos=QOS --nodes=4 \
   configs/lm/gslm2/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10_ll-6kh_350m.yaml
 ```
 
-See [LM experiments](configs/lm/README.md) for environments
-and output paths. Standalone recipe configs run with the fairseq2 CLI above.
+The launcher uses `gslm2_lm` for every stage. Its optional arguments
+`START_STEP END_STEP RUN_NAME` let you train or evaluate a prepared run.
+Validation and checkpoint selection use fairseq2's recipe regime; evaluation
+scores the retained checkpoints on the configured benchmarks.
+
+To run the stages directly, use the same experiment config and run name:
+
+```bash
+conda activate gslm2_lm
+LM_CONFIG=configs/lm/slm/spidr2-slm_codes-l7_ll-6kh_350m.yaml
+export SLM_RUN_NAME=SLM_example
+torchrun --standalone --nproc_per_node=8 \
+  -m gslm2.lm.prepare --config_path "$LM_CONFIG"
+torchrun --standalone --nproc_per_node=8 \
+  -m gslm2.lm.train --config_path "$LM_CONFIG"
+torchrun --standalone --nproc_per_node=8 \
+  -m gslm2.lm.eval.benchmarks --config_path "$LM_CONFIG"
+```
+
+Preparation writes token shards and benchmark pairs. Multi-stream units use
+`|`-joined streams in evaluation pairs. Speech benchmark pairing reads
+ZeroSpeech labels from `slm.feature_extraction.slm21_root`.
+
+Build audio pair manifests from ZeroSpeech downloads:
+
+```bash
+python scripts/create_slm_pair_manifests.py --data-dir /path/to/sLM21-dataset \
+  --output-dir /path/to/sLM21-pairs
+```
 
 ## Duration prediction and speech synthesis
 
