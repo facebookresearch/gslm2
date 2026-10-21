@@ -42,7 +42,7 @@ native = [
 
 # LM speech/text preparation, fairseq2 training, and evaluation.
 lm = [
-    "torch==2.9.0",
+    "torch==2.13.0",
     "torchcodec==0.9.0",
     "torchaudio==2.9.0",
     "fairseq2~=0.7.0",
