@@ -7,7 +7,7 @@ slm:
   common_folder: /path/to/runs/spidr2-slm_codes-l7_ll-6kh_350m
   output_results_file: /path/to/runs/spidr2-slm_codes-l7_ll-6kh_350m/slm_metrics.jsonl
   feature_extraction:
-    checkpoint: /path/to/checkpoints/spidr2.0/seed-0__final.pt
+    checkpoint: /path/to/runs/spidr2.0-ls960/final.pt
     model_type: spidr
     slm21_root: /path/to/sLM21-dataset
     layers:

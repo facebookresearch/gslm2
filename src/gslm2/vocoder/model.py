@@ -1,7 +1,7 @@
 """Unit HiFi-GAN generator and discriminator architectures.
 
-Adapted from ``unit-hifigan`` by Maxime Poli under the MIT license included in
-this package directory.
+Adapted from ``unit-hifigan`` by Maxime Poli under the MIT license.
+See https://github.com/bootphon/unit-hifigan/blob/main/src/unit_hifigan/model.py
 """
 
 from __future__ import annotations

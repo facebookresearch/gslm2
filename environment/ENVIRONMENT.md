@@ -7,9 +7,11 @@ Use two environments installed from the same repository:
   TorchCodec 0.14.0, requires torchaudio >=2.11.0, and uses NumPy 2.x.
 - `gslm2_lm` with `.[lm]`: speech/text preparation and fairseq2 training/evaluation.
   Pins PyTorch/torchaudio 2.9.0 and TorchCodec 0.9.0, with
-  fairseq2 0.7 and its declared NumPy 1.x dependency.
+  fairseq2 0.7 and the same NumPy 2.x constraint as native.
 
 ## Installation
+
+Run from the repository root in Bash.
 
 ```bash
 # Create only if the environment does not already exist.
@@ -20,7 +22,8 @@ export LD_LIBRARY_PATH="$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 conda create -n gslm2_lm python=3.12 ffmpeg=8 libsndfile -c conda-forge
 conda activate gslm2_lm
-uv pip install -e '.[lm]' --group dev
+uv pip install -e '.[lm]' --group dev \
+  --overrides <(printf '%s\n' 'numpy>=2.1.3,<2.4')
 export LD_LIBRARY_PATH="$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 ```
 
@@ -42,10 +45,20 @@ an FFmpeg version supported by TorchCodec. Keep CUDA/cuDNN libraries
 consistent with the installed PyTorch stack; inherited library paths can
 cause incompatible system libraries to load.
 
-NumPy constraints are separate: native uses >=2.1.3,<2.4; LM uses >=1.26,<2.
-The earlier NumPy metadata overrides have been removed. The LM extra also
-keeps Polars below 2 and W&B below 0.28.2 for fairseq2 compatibility; native
-uses the original broader constraints and `fastabx>=0.8.0`.
+Both environments use NumPy >=2.1.3,<2.4. fairseq2 0.7 runs with NumPy 2,
+although its metadata declares `numpy~=1.23`. `tool.uv.override-dependencies`
+handles this for `uv lock` and `uv sync`. For `uv pip install`, pass
+`--overrides <(printf '%s\n' 'numpy>=2.1.3,<2.4')` as shown above. Bash
+process substitution supplies the requirement directly through a file
+descriptor.
+
+Installed fairseq2 metadata retains the NumPy 1.x requirement, so
+`uv pip check` reports that known incompatibility in the LM environment.
+Use the runtime checks below to verify the selected stack.
+
+The LM extra keeps Polars below 2 and W&B below 0.28.2 for fairseq2
+compatibility. Native uses the original broader constraints and
+`fastabx>=0.8.0`.
 
 ## Launchers
 
@@ -73,7 +86,7 @@ gslm2-train-lm --help
 
 The `metasr_t213-environment.yml`, `metasr_t213-pip-freeze.txt`,
 `metasr-environment.yml`, and `metasr-pip-freeze.txt` files record earlier
-PyTorch 2.13 and 2.9 installations. The historical LM export used NumPy 2.3.5;
-new LM installations follow fairseq2's declared NumPy 1.x requirement.
+PyTorch 2.13 and 2.9 installations. Both historical stacks used NumPy 2.3.5,
+which is supported by the shared NumPy 2.x constraint.
 Current dependency pins are in `pyproject.toml`; use the installation commands
 above for new environments.
