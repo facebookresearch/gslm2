@@ -1,0 +1,55 @@
+# fairseq2 slm recipe: ll-600h-90m.
+# Prepare train/valid token shards before training; see REPRODUCING.md.
+# Original launch size: 1 nodes x 8 GPUs.
+model_preset: opt125m
+model:
+  family: opt
+  arch: metasr_unit_opt
+  vocab_size: 256
+  dtype: bfloat16
+dataset:
+  family: metasr_unit
+  path: /path/to/units/ll-600h-90m
+  train_split: train
+  valid_split: valid
+  unit_offset: 2
+  min_seq_len: 2
+  max_seq_len: 2048
+  max_num_tokens: 81920
+  pack: false
+trainer:
+  data_parallelism: ddp
+  max_grad_norm: 0.5
+optimizer:
+  name: adamw
+  config:
+    lr: 0.01
+    betas:
+    - 0.9
+    - 0.95
+    eps: 1.0e-08
+    weight_decay: 0.1
+    impl: fused
+lr_scheduler:
+  name: cosine_annealing
+  config:
+    num_warmup_steps: 1000
+    start_lr: 9.999999999999999e-31
+    final_lr_scale: 0.1
+regime:
+  num_steps: 15000
+  validate_at_start: true
+  validate_every_n_steps: 500
+  checkpoint_every_n_steps: 500
+  publish_metrics_every_n_steps: 100
+  keep_last_n_checkpoints: 1
+  keep_best_n_checkpoints: 1
+  score_metric: nll_loss
+common:
+  seed: 0
+  metric_recorders:
+    wandb:
+      enabled: false
+      project: gslm2
+      run_name: slm-ll-600h-90m-seed0
+is_train_deterministic: true

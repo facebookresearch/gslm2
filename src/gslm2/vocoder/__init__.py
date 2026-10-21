@@ -1,1 +1,5 @@
-"""Speech synthesis: duration predictor and unit vocoder."""
+"""Minimal unit-conditioned HiFi-GAN models and training utilities."""
+
+from gslm2.vocoder.model import SAMPLE_RATE, UnitDiscriminator, UnitVocoder
+
+__all__ = ["SAMPLE_RATE", "UnitDiscriminator", "UnitVocoder"]

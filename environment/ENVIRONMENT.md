@@ -1,64 +1,79 @@
 # Environment reproduction
 
-Standard env: **`metasr_t213`** (torch 2.13) — used for unit tests, ABX/MAP/
-codebook evals, SLM evals, and SLURM training launches (`gslm2-train`).
+Use two environments installed from the same repository:
 
-The `metasr-*` files document the previous `metasr` env (torch 2.9), kept for
-reference: the first training launches and the MAP/codebook evals ran there.
+- `gslm2` with `.[native]`: encoder training/evaluation, standalone speech-unit extraction,
+  duration prediction, vocoding, and synthesis. Pins PyTorch 2.13.0 and
+  TorchCodec 0.14.0, requires torchaudio >=2.11.0, and uses NumPy 2.x.
+- `gslm2_lm` with `.[lm]`: speech/text preparation and fairseq2 training/evaluation.
+  Pins PyTorch/torchaudio 2.9.0 and TorchCodec 0.9.0, with
+  fairseq2 0.7 and its declared NumPy 1.x dependency.
 
-## Files
-
-- `metasr_t213-environment.yml` — `conda env export` output, runnable with
-  `conda env create` except for the commented-out lines (CUDA-index-only and
-  editable installs, handled in step 2–3 below).
-- `metasr_t213-pip-freeze.txt` — informational record.
-- `metasr-environment.yml` / `metasr-pip-freeze.txt` — same for the legacy
-  torch-2.9 env.
-
-## Recipe
+## Installation
 
 ```bash
-# 1. Base env (conda deps + all pip deps except torch/editables)
-conda env create -f environment/metasr_t213-environment.yml -n gslm2-t213
-conda activate gslm2-t213
+# Create only if the environment does not already exist.
+conda create -n gslm2 python=3.12 ffmpeg=8 libsndfile -c conda-forge
+conda activate gslm2
+uv pip install -e '.[native]' --group dev
+export LD_LIBRARY_PATH="$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
-# 2. CUDA torch stack (local versions, not on PyPI)
-pip install --index-url https://download.pytorch.org/whl/cu130 \
-  torch==2.13.0+cu130 torchvision==0.28.0+cu130
-
-# 3. The repo itself (editable, no dep changes)
-pip install -e /path/to/gslm2 --no-deps
-
-# 4. Verify
-python -c "import torch, torchcodec, fastabx, submitit, gslm2; \
-  print(torch.__version__, torchcodec.__version__)"
-gslm2-train --help          # console scripts on PATH
-python -m pytest tests/test_spidr_batch_inference.py -q  # smoke
+conda create -n gslm2_lm python=3.12 ffmpeg=8 libsndfile -c conda-forge
+conda activate gslm2_lm
+uv pip install -e '.[lm]' --group dev
+export LD_LIBRARY_PATH="$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 ```
 
-No system FFmpeg needed: `torchcodec` ships its own decoder libs.
+The base package contains shared dependencies; select `native` or `lm` for a
+runtime. The `dev` group contains Ruff and mypy. Vocoder training's `torchdata`
+dependency is included in `native`.
 
-## Key versions (`metasr_t213`)
+Alternatively, use the two uv project environments documented in
+[README.md](../README.md#uv-environments). `tool.uv.conflicts` declares the
+runtime extras mutually exclusive so uv can resolve a shared lockfile.
 
-| Package | Version | Notes |
-|---|---|---|
-| python | 3.12.15 | |
-| torch / torchvision | 2.13.0+cu130 / 0.28.0+cu130 | CUDA index only |
-| torchcodec | 0.14.0 | audio loading, bundled FFmpeg |
-| fastabx | 0.9.0 | satisfies `pyproject>=0.8.0`; grouped ABX scoring |
-| numpy / submitit | 2.3.5 / 1.5.4 | |
-| speech-map / discophon | (see yml) | MAP + DiscoPhon evals |
-| wandb | (see yml) | `wandb_mode: online` training runs |
-| torchaudio | — (absent) | only the unit vocoder + HuBERT-baseline branches need it |
-| fairseq2 | — (absent) | `test_slm_loss_parity` skips (it needs the deleted fs2 bridge) |
+The PyTorch 2.9.0 Linux wheels from PyPI use CUDA 12.8. To select that LM
+build explicitly, add `--torch-backend cu128` to its install command. The
+native environment export records a PyTorch 2.13.0 CUDA 13.0 build; use the
+wheel index that supplies your confirmed native stack if needed.
 
-`gslm2` launches need `GSLM2_CLUSTER=FAIR_SC_3` set at submit time.
+Use a CUDA build supported by the machine's driver. Audio decoding requires
+an FFmpeg version supported by TorchCodec. Keep CUDA/cuDNN libraries
+consistent with the installed PyTorch stack; inherited library paths can
+cause incompatible system libraries to load.
 
-## Notes
+NumPy constraints are separate: native uses >=2.1.3,<2.4; LM uses >=1.26,<2.
+The earlier NumPy metadata overrides have been removed. The LM extra also
+keeps Polars below 2 and W&B below 0.28.2 for fairseq2 compatibility; native
+uses the original broader constraints and `fastabx>=0.8.0`.
 
-- fastabx 0.8+ changed triplet subsampling order, so ABX scores shift by
-  sampling noise vs 0.6.0-computed numbers — not exactly comparable to older
-  internal runs.
-- `test_slm_loss_parity` fails in envs where `fairseq2` is installed (it
-  imports the `gslm2.fs2` bridge deleted in the carve-out). Pre-existing,
-  unrelated to any model code; it skips in this env.
+## Launchers
+
+The LM steps launcher uses `gslm2_lm` for all three stages: speech/text
+preparation, training, and evaluation. Speech preparation loads the encoder
+for inference in the LM stack. Duration and vocoder launchers use `gslm2`.
+
+Pre-extracted unit/token files connect the LM stages.
+
+## Verification
+
+Run these checks in the corresponding installed environment:
+
+```bash
+conda activate gslm2
+python -c "import torch, torchaudio, torchcodec; print(torch.__version__, torchaudio.__version__, torchcodec.__version__)"
+gslm2-train-encoder --help
+
+conda activate gslm2_lm
+python -c "import torch, fairseq2, numpy; print(torch.__version__, fairseq2.__version__, numpy.__version__)"
+gslm2-train-lm --help
+```
+
+## Historical exports
+
+The `metasr_t213-environment.yml`, `metasr_t213-pip-freeze.txt`,
+`metasr-environment.yml`, and `metasr-pip-freeze.txt` files record earlier
+PyTorch 2.13 and 2.9 installations. The historical LM export used NumPy 2.3.5;
+new LM installations follow fairseq2's declared NumPy 1.x requirement.
+Current dependency pins are in `pyproject.toml`; use the installation commands
+above for new environments.

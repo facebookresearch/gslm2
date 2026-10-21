@@ -3,14 +3,16 @@ __pycache__/
 *.pyo
 .mypy_cache/
 .ruff_cache/
-.pytest_cache/
 .venv/
+.venv-*/
 *.egg-info/
 dist/
 build/
 wandb/
 results/
 checkpoints/
+slurm-*.out
+slurm-*.err
 *.pt
 *.pth
 .DS_Store

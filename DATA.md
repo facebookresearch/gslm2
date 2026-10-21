@@ -8,7 +8,6 @@
 | Libri-Light (`unlab-600/6k/60k`, official 60 s segmentation) | SLM / GSLM2 | 600h / 6Kh / 60Kh |
 | Libriheavy-long (multi-sentence segments) | Text LM | transcripts of Libri-Light |
 | VoxPopuli (En/Fr/De, VAD+LID segmented, 0.5–60 s) | multilingual encoder + SLM | 6Kh per language |
-| LJ Speech (250 held-out utts) | unit vocoder | 24h |
 
 ## Manifest format
 
@@ -17,7 +16,7 @@ Audio manifests are CSVs with columns `fileid,path,num_frames`
 Build one per corpus directory:
 
 ```bash
-python -m gslm2.data.speech.write_manifest <audio-dir> <out.csv> --ext .flac
+python -m gslm2.encoder.data.write_manifest <audio-dir> <out.csv> --ext .flac
 ```
 
 Scales that combine Libri-Light subsets need a single merged CSV, e.g.:
@@ -28,24 +27,40 @@ head -n 1 small_segmented_60s.csv > librilight-6kh.csv
 tail -n +2 -q small_segmented_60s.csv medium_segmented_60s.csv >> librilight-6kh.csv
 ```
 
-## Unit manifests (GSLM2 / vocoder / duration)
+## Unit manifests (SLM / GSLM2)
 
-Multi-stream training, the vocoder, and the duration predictor consume
-pre-extracted units. Extract them from a trained encoder (single stream,
-layer 7, deduped; six streams, layers 5–10, cross-stream deduped; or
-non-deduped vocoder features) with the feature-extraction CLI (see
-`gslm2.eval.slm`), then point the configs at the outputs:
+The encoder produces raw code IDs through `gslm2-extract-units`. The fairseq2
+LM dataset adds the reserved-token offset when reading these IDs.
 
-- GSLM2: one `.txt` per split, one line per utterance, the 6 streams as
-  equal-length space-separated blocks (see `PreExtractedUnitSource`).
-- Vocoder: per-split `.jsonl` unit manifests over LJ Speech (see
-  `gslm2.vocoder.unit.data`).
-- Duration: `.txt` unit/duration files over LL-600h (see
-  `gslm2.vocoder.duration.dataset`).
+- `train/` and `valid/`: `<dataset>_<rank>.txt` shards, one utterance per line. Single-stream
+  lines contain space-separated code IDs. Multi-stream lines concatenate the
+  aligned streams as equal-length space-separated blocks.
+- `test/`: `.jsonl` utterance records with file paths. Multi-stream records
+  represent their streams with `|` separators.
+- Benchmark pairs: `.jsonl` records with `positive` and `negative` objects,
+  each containing `units`. Pairing belongs to `gslm2.lm.eval.create_pairs`.
 
-## Text
+For a recipe-only run, point `dataset.path` at the layer directory containing
+`train/` and `valid/`. Provide at least one `<dataset>_<rank>.txt` shard per distributed rank.
+The combined LM pipeline can extract units and prepare benchmark pairs first.
 
-- Per-scale BPE-4096 over the matching transcripts:
-  `python scripts/train_tokenizer.py --type bpe --vocab-size 4096
-  --train-file <scale>.txt --output-dir tokenizers/<scale>-bpe4096`
-- Text-LM manifests are `.txt` (one document per line) or `.json` lists.
+## Text tokens
+
+Text LMs use pretokenized integer `.txt` shards under `train/` and `valid/`.
+Their dataset uses `unit_offset=0`; vocabulary size includes special tokens.
+Packed BPE records begin with `</s>` (ID 2), and the reader uses that delimiter
+to isolate documents. Padding uses ID 1. Use a tokenizer with those IDs.
+
+`gslm2.lm.tokenize` contains text preprocessing and benchmark tokenization for
+the combined pipeline. Its input training manifests are CSVs with a `file`
+column naming source text files. Set `text_tokenizer_path` to a tokenizer JSON
+and `vocab_size` to its vocabulary size in the pipeline preparation config.
+Tokenized benchmark pairs use the same positive/negative JSONL schema as SLMs.
+
+## Duration and vocoder inputs
+
+Duration and vocoder training use full-rate raw encoder codes. Extract without
+deduplication or chunking, and use `output_format: jsonl` to retain audio paths
+for every split. `gslm2-prepare-synthesis-data` writes audio/unit JSONL manifests
+for the vocoder and text shards for duration target construction. See
+[SYNTHESIS.md](SYNTHESIS.md) for formats, stream order, and commands.

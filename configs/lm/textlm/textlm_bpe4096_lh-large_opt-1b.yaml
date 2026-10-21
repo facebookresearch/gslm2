@@ -1,0 +1,138 @@
+# Public template based on configs/yosukeh/lm/textlm/textlm_bpe4096_lh-large_opt-1b.yaml.
+# Replace /path/to/... with your data, checkpoint, and output paths.
+# Resources: 2 nodes x 8 GPUs; max_num_tokens is per rank.
+# Prepare data, train, and evaluate in one job:
+# sbatch --account=ACCOUNT --qos=QOS --nodes=2 scripts/launchers/slurm_lm_steps.sbatch configs/lm/textlm/textlm_bpe4096_lh-large_opt-1b.yaml
+slm:
+  common_folder: /path/to/runs/textlm_bpe4096_lh-large_opt-1b
+  output_results_file: /path/to/runs/textlm_bpe4096_lh-large_opt-1b/slm_eval_results.jsonl
+  feature_extraction:
+    model_type: text
+    checkpoint: null
+    vocab_size: 4096
+    text_tokenizer_path: /path/to/libriheavy/processed_text/tokenizers/lh-large_bpe4096/tokenizer.json
+    layers: []
+    overwrite_folder: true
+    manifests_train:
+    - /path/to/libriheavy/processed_text/libriheavy_text_small.csv
+    - /path/to/libriheavy/processed_text/libriheavy_text_medium.csv
+    - /path/to/libriheavy/processed_text/libriheavy_text_large.csv
+    manifests_valid:
+    - /path/to/libriheavy/validation/output_text_dev_cleaned.csv
+    manifests_test:
+    - /path/to/text-benchmark-pairs/lexical_test.jsonl
+    - /path/to/text-benchmark-pairs/syntactic_test.jsonl
+    - /path/to/text-benchmark-pairs/sSC.jsonl
+    - /path/to/text-benchmark-pairs/tSC.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/agrswap_freq_0-1.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/agrswap_freq_1-2.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/agrswap_freq_2-4.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/agrswap_freq_4-8.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/agrswap_freq_8-16.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/agrswap_freq_16-32.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/agrswap_freq_32-64.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/agrswap_freq_64-128.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/agrswap_freq_128-256.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/agrswap_freq_256-512.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/agrswap_freq_512-inf.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/inflswap_freq_0-1.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/inflswap_freq_1-2.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/inflswap_freq_2-4.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/inflswap_freq_4-8.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/inflswap_freq_8-16.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/inflswap_freq_16-32.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/inflswap_freq_32-64.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/inflswap_freq_64-128.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/inflswap_freq_128-256.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/inflswap_freq_256-512.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/inflswap_freq_512-inf.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/wordswap_freq_1-2.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/wordswap_freq_2-4.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/wordswap_freq_4-8.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/wordswap_freq_8-16.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/wordswap_freq_16-32.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/wordswap_freq_32-64.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/wordswap_freq_64-128.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/wordswap_freq_128-256.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/wordswap_freq_256-512.jsonl
+    - /path/to/manifests/ltswap_libriheavy_text/ltswap_lh_small+medium+large/wordswap_freq_512-inf.jsonl
+  train:
+    model_preset: opt1b
+    dataset:
+      family: metasr_text
+      train_split: train
+      valid_split: valid
+      valid_max_num_batches: 25
+      valid_metrics:
+        names:
+        - tSC
+        - sSC
+        - lexical_test
+        - syntactic_test
+        max_pairs: 1000
+        batch_size: 32
+      unit_offset: 0
+      min_seq_len: 2
+      max_seq_len: 2048
+      max_num_tokens: 30720
+      batch_shuffle_window: 1000
+      example_shuffle_window: 2000
+      dynamic_chunking_batch_size: 4
+    trainer:
+      grad_accumulation:
+        num_batches: 1
+      max_grad_norm: 0.5
+      grad_check: false
+      anomaly_detection: false
+      data_parallelism: ddp
+    optimizer:
+      config:
+        lr: 1e-3
+        betas:
+        - 0.9
+        - 0.95
+        eps: 1e-08
+        weight_decay: 0.01
+        differentiable: false
+        impl: fused
+      name: adamw
+    lr_scheduler:
+      config:
+        cycle_len: null
+        num_warmup_steps: 1000
+        cycle_mul: 1.0
+        lr_mul: 1.0
+        start_lr: 1e-30
+        final_lr: null
+        final_lr_scale: 0.1
+      name: cosine_annealing
+    regime:
+      num_steps: 100000
+      validate_every_n_steps: 100
+      checkpoint_every_n_steps: 100
+      publish_metrics_every_n_steps: 100
+      keep_best_n_checkpoints: 1
+      keep_last_n_checkpoints: 1
+      score_metric: nll_loss
+    common:
+      metric_recorders:
+        wandb:
+          enabled: true
+          project: gslm2
+          run_id: null
+          run_name: null
+          group: null
+          job_type: null
+          resume_mode: allow
+      seed: 0
+    model:
+      family: opt
+      arch: metasr_text_opt
+      vocab_size: 4096
+      dtype: bfloat16
+    is_train_deterministic: true
+  eval:
+    offset: 0
+    bos: null
+    delete_data_model_after_eval: false
+  seed: 0

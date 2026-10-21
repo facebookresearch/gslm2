@@ -28,7 +28,7 @@ from pathlib import Path
 
 import polars as pl
 
-from gslm2.eval.slm.pairing import (
+from gslm2.lm.eval.pairing import (
     STORYCLOZE_BENCHMARKS,
     ZR21_BENCHMARKS,
     ZR21_GOLD_SUBPATH,

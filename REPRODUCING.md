@@ -6,24 +6,27 @@ This file maps each paper table/figure to the commands that produce it.
 
 | Artifact | Config | Command |
 |---|---|---|
-| SpidR 2.0 encoder (LS-960h) | `configs/encoder/spidr2.0-ls960.yaml` | `gslm2-train -A <acct> -N 2 -G 8 -Q <qos> --dump <dir> configs/encoder/spidr2.0-ls960.yaml` |
+| SpidR 2.0 encoder (LS-960h) | `configs/encoder/spidr2.0-ls960.yaml` | `gslm2-train-encoder -A <acct> -N 2 -G 8 -q <qos> --dump <dir> configs/encoder/spidr2.0-ls960.yaml` |
 | SpidR 2.0 encoder (VoxPopuli En/Fr/De) | `configs/encoder/spidr2.0-voxpopuli-{en,fr,de}.yaml` | same, 2 nodes |
-| Single-stream SLM | `configs/slm/ll-*.yaml`, `configs/slm/voxpopuli-*.yaml` | `gslm2-train ...` (nodes per config) |
-| GSLM2 multi-stream SLM | `configs/gslm2/ll-*.yaml` | `gslm2-train ...` (extract units first, see below) |
-| Text LM | `configs/textlm/*.yaml` | `gslm2-train ...` (train BPE first, see `DATA.md`) |
-| Duration predictor | `configs/duration/{single,multi}-stream.yaml` | `gslm2-duration-predictor --config ...` |
-| Unit vocoder | `configs/vocoder/{single,multi}-stream.yaml` | `gslm2-unit-vocoder --config ...` |
+| Single-stream SLM | `configs/lm/slm/*.yaml` | LM steps launcher below |
+| GSLM2 multi-stream SLM | `configs/lm/gslm2/*.yaml` | LM steps launcher below |
+| Text LM | `configs/lm/textlm/*.yaml` | LM steps launcher below |
+| VoxPopuli SLM / text LM | `configs/lm/recipes/{slm,textlm}/voxpopuli-*.yaml` | fairseq2 recipe CLI below |
 
-## Unit extraction (GSLM2 / vocoder / duration inputs)
+## Unit extraction (SLM / GSLM2 inputs)
+
+Unit extraction accepts a user-provided YAML matching `FeatExtractConfig`
+in `src/gslm2/encoder/units/config.py`. Set the encoder checkpoint, input
+manifests, output folder, layers, vocabulary, and deduplication settings.
 
 ```bash
-# single-stream deduped (SLM + discrete evals)
-gslm2-extract-units --config configs/extract/spidr2-l7-codes-dedup.yaml
-# six-stream cross-stream deduped (GSLM2)
-gslm2-extract-units --config configs/extract/spidr2-l5to10-codes-multistream.yaml
-# k-means baseline units (SpidR L6 / HuBERT L11)
-gslm2-extract-units --config configs/extract/spidr-l6-kmeans.yaml
+gslm2-extract-units --config /path/to/extraction.yaml
 ```
+
+For single-stream SLM units, select one layer and enable `deduplicate`.
+For six-stream GSLM2 units, use layers 5–10, `clustering: codes`,
+`vocab_size: [256, 256, 256, 256, 256, 256]`, `deduplicate: false`,
+`cross_stream_deduplicate: true`, and `chunk_size: 4096`.
 
 ## Encoder evaluation (`tab:encoder-eval`, `fig:frontend-eval`)
 
@@ -49,44 +52,64 @@ python scripts/plot_map.py map.csv -o map.png
 python scripts/plot_pnmi_layerwise.py codebook-out/ -o pnmi.png
 ```
 
-## Spoken-LM evaluation (sWuggy / sBLIMP / StoryCloze, `tab:slm`)
+## LM training and evaluation (fairseq2)
+
+Use `scripts/launchers/slurm_lm_steps.sbatch` for Slurm jobs (see below).
+The following are the underlying recipe training and evaluation commands.
+
+Prepare token shards (see `DATA.md`), set `dataset.path` in the recipe, then run
+in the `gslm2_lm` environment installed with the `lm` extra (see
+[installation guidance](README.md#installation)):
 
 ```bash
-# single-stream: audio pairs in, on-the-fly encoding with the training encoder
-gslm2-eval-slm --config configs/slm/ll-6kh-300m.yaml \
-  --checkpoint /path/to/slm-ckpt.pt --pairs-dir /path/to/sLM21-pairs \
-  --benchmarks lexical_test_invocab lexical_test_oov syntactic_test sSC tSC \
-  --out results/slm-ll-6kh-300m.json
-# text LM: same CLI, text pair CSVs (positive/negative columns)
-gslm2-eval-slm --config configs/textlm/lh-6kh-300m.yaml \
-  --checkpoint /path/to/textlm-ckpt.pt --pairs-dir /path/to/text-pairs \
-  --benchmarks syntactic_test --out results/textlm.json
+conda activate gslm2_lm
+# The same recipe entry point handles SLM, textlm, and GSLM2 configs.
+torchrun --standalone --nproc_per_node=8 \
+  -m gslm2.lm.recipes.train.run_recipe \
+  --config-file configs/lm/recipes/slm/ll-6kh-300m.yaml runs/slm-ll-6kh
 ```
 
-Build audio pair manifests from ZeroSpeech downloads once:
+Validation and checkpoint selection use fairseq2's recipe regime. For benchmark
+scoring, pass tokenized JSONL pairs (speech units or text tokenizer IDs):
+
+```bash
+gslm2-eval-slm --config-file configs/lm/recipes/slm/ll-6kh-300m.yaml \
+  --checkpoint runs/slm-ll-6kh/checkpoints/step_25000 \
+  --pairs-dir /path/to/tokenized-pairs \
+  --benchmarks lexical_test_invocab lexical_test_oov syntactic_test sSC tSC \
+  --out results/slm-ll-6kh.jsonl
+```
+
+The same evaluation command accepts `configs/lm/recipes/textlm/*.yaml` and
+`configs/lm/recipes/gslm2/*.yaml`. Native LM checkpoints/configs from the previous layout
+are no longer accepted by these LM commands.
+
+Build audio pair manifests from ZeroSpeech downloads:
 
 ```bash
 python scripts/create_slm_pair_manifests.py --data-dir /path/to/sLM21-dataset \
-  --output-dir /path/to/sLM21-pairs   # see scripts/PAIR_MANIFEST_FORMAT.md
+  --output-dir /path/to/sLM21-pairs
 ```
 
-Multi-stream (GSLM2) scores pre-extracted `|`-joined unit pairs: extract the
-benchmark audio with `manifests_test=[benchmark.csv]` (6-stream config), pair
-with `gslm2.eval.slm.create_pairs.create_paired_file`, then run
-`gslm2-eval-slm` with the GSLM2 training config over the `pairs/` dir.
+Unit extraction writes test JSONL manifests. Pair them with
+`gslm2.lm.eval.create_pairs.create_paired_file`. Multi-stream units use
+`|`-joined streams in evaluation pairs.
 
-## Resynthesis (`tab:speech_resynthesis`)
+For the public experiments under `configs/lm`, replace the template paths
+with your own and submit one config to run
+preparation, training, and evaluation automatically:
 
 ```bash
-# 1. LJ Speech units (non-deduped oracle + deduped), 250 held-out utts
-gslm2-extract-units --config configs/extract/spidr2-l7-codes-dup.yaml
-# 2. oracle vs predicted durations, WER (Whisper/Qwen3-Omni) + UTMOS
-gslm2-eval-resynthesis --oracle-manifest feats/l7-dup/unit_vocoder/ljspeech_valid.jsonl \
-  --dedup-manifest feats/l7-dedup/unit_vocoder/ljspeech_valid.jsonl \
-  --asr-manifest ljspeech-valid-asr.jsonl --vocoder-checkpoint runs/vocoder-single/vocoder-last \
-  --duration-checkpoint runs/duration-single/best.pt --asr whisper --out-dir results/resynth
+sbatch --account=ACCOUNT --qos=QOS --nodes=4 \
+  scripts/launchers/slurm_lm_steps.sbatch \
+  configs/lm/gslm2/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10_ll-6kh_350m.yaml
 ```
 
-## Generation (ASR-PPL, NRS, LLMJ), LT-Swap, multilingual cascade
+See [LM experiments](configs/lm/README.md) for environments
+and output paths. Standalone recipe configs run with the fairseq2 CLI above.
 
-Under construction (Phase 5).
+## Duration prediction and speech synthesis
+
+See [SYNTHESIS.md](SYNTHESIS.md) for full-rate data preparation and independent
+training using `configs/misc/duration/` and `configs/misc/vocoder/`, followed by
+`gslm2-synthesize` to convert generated speech units to audio.

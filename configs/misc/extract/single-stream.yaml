@@ -1,0 +1,17 @@
+# Full-rate SpidR L7 codes for single-stream vocoder and duration training.
+# Keep frame repetitions and audio paths; the unit hop must be 320 samples at 16 kHz.
+checkpoint: /path/to/encoder.pt
+model_type: spidr
+manifests_train: [/path/to/train.csv]
+manifests_valid: [/path/to/valid.csv]
+manifests_test: []
+output_folder: /path/to/framewise-units/single-stream
+output_format: jsonl
+layers: [7]
+vocab_size: 256
+clustering: codes
+deduplicate: false
+cross_stream_deduplicate: false
+chunk: false
+batch_size: 8
+encoder_dtype: float32
