@@ -1,0 +1,43 @@
+# Full-rate units; targets choose TXT for duration and JSONL for vocoder/evaluation.
+# sbatch scripts/launchers/slurm_extract_units.sbatch configs/yosukeh/misc/extract/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10-dup.yaml
+checkpoint: /datasets/metaspeechssl/shared/models/spidr_checkpoints/spidr-2.0/seed-0__final.pt
+model_type: spidr
+layers:
+- 5
+- 6
+- 7
+- 8
+- 9
+- 10
+clustering: codes
+vocab_size:
+- 256
+- 256
+- 256
+- 256
+- 256
+- 256
+deduplicate: false
+cross_stream_deduplicate: false
+chunk_size: 2048
+overwrite_folder: true
+targets:
+  duration_predictor:
+    manifests:
+    - /datasets/metaspeechssl/shared/assets/manifests/librilight/small_segmented_60s.csv
+    - /datasets/metaspeechssl/shared/assets/manifests/librilight/large_segmented_60s_dev.csv
+  unit_vocoder:
+    manifests:
+    - /datasets/metaspeechssl/shared/assets/manifests/ljspeech/ljspeech_train.csv
+    - /datasets/metaspeechssl/shared/assets/manifests/ljspeech/ljspeech_valid.csv
+    - /datasets/metaspeechssl/shared/assets/manifests/ljspeech/ljspeech_test.csv
+  generative_eval:
+    manifests:
+    - audio_manifest: /datasets/metaspeechssl/yosukeh/assets/manifests/librispeech/librispeech_dev-clean_1k_min6s.csv
+      prompt_boundary_manifest: /datasets/metaspeechssl/yosukeh/assets/manifests/librispeech/librispeech_dev-clean_1k_min6s_prompt_boundaries_3s.jsonl
+    - audio_manifest: /datasets/metaspeechssl/yosukeh/assets/manifests/librispeech/librispeech_test-clean_1k_min6s.csv
+      prompt_boundary_manifest: /datasets/metaspeechssl/yosukeh/assets/manifests/librispeech/librispeech_test-clean_1k_min6s_prompt_boundaries_3s.jsonl
+output_folder: /checkpoint/devai/yosukeh/gslm2_test/framewise_units/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10-dup
+chunk: true
+batch_size: 8
+encoder_dtype: float32

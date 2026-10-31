@@ -1,0 +1,144 @@
+# Source: /storage/home/yosukeh/metasr-internal/metasr-internal-main/configs/yosukeh/gslm2/spidr2-slm_codes-l7_ll-60kh_1b.yaml
+# Resources: 2 nodes x 8 GPUs; max_num_tokens is per rank.
+# Prepare data, train, and evaluate in one job:
+# sbatch --qos=h200_devai_high --nodes=2 scripts/launchers/slurm_lm_steps.sbatch configs/yosukeh/lm/slm/spidr2-slm_codes-l7_ll-60kh_1b.yaml
+slm:
+  seed: 0
+  common_folder: /checkpoint/devai/yosukeh/gslm2_test/spidr2-slm_codes-l7_ll-60kh_1b
+  output_results_file: /checkpoint/devai/yosukeh/gslm2_test/spidr2-slm_codes-l7_ll-60kh_1b/slm_metrics.jsonl
+  feature_extraction:
+    checkpoint: /datasets/metaspeechssl/shared/models/spidr_checkpoints/spidr-2.0/seed-0__final.pt
+    model_type: spidr
+    layers:
+    - 7
+    clustering: codes
+    vocab_size: 256
+    deduplicate: true
+    overwrite_folder: true
+    manifests_train:
+    - /datasets/metaspeechssl/shared/assets/manifests/librilight/small_segmented_60s.csv
+    - /datasets/metaspeechssl/shared/assets/manifests/librilight/medium_segmented_60s.csv
+    - /datasets/metaspeechssl/shared/assets/manifests/librilight/large_segmented_60s_train.csv
+    manifests_valid:
+    - /datasets/metaspeechssl/shared/assets/manifests/librilight/large_segmented_60s_dev.csv
+    manifests_test:
+    - /datasets/metaspeechssl/shared/assets/manifests/sLM21-dataset/lexical_dev_invocab.csv
+    - /datasets/metaspeechssl/shared/assets/manifests/sLM21-dataset/lexical_dev_oov.csv
+    - /datasets/metaspeechssl/shared/assets/manifests/sLM21-dataset/lexical_test_invocab.csv
+    - /datasets/metaspeechssl/shared/assets/manifests/sLM21-dataset/lexical_test_oov.csv
+    - /datasets/metaspeechssl/shared/assets/manifests/sLM21-dataset/syntactic_dev.csv
+    - /datasets/metaspeechssl/shared/assets/manifests/sLM21-dataset/syntactic_test.csv
+    - /datasets/metaspeechssl/shared/assets/manifests/sLM21-dataset/sSC.csv
+    - /datasets/metaspeechssl/shared/assets/manifests/sLM21-dataset/tSC.csv
+    - /datasets/metaspeechssl/shared/assets/manifests/sLM21-dataset/tSC_dev.csv
+    - /datasets/metaspeechssl/shared/assets/manifests/sLM21-dataset/tSC_dev_expanded.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/agrswap_freq_0-1.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/agrswap_freq_1-2.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/agrswap_freq_2-4.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/agrswap_freq_4-8.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/agrswap_freq_8-16.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/agrswap_freq_16-32.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/agrswap_freq_32-64.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/agrswap_freq_64-128.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/agrswap_freq_128-256.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/agrswap_freq_256-512.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/agrswap_freq_512-inf.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/inflswap_freq_0-1.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/inflswap_freq_1-2.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/inflswap_freq_2-4.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/inflswap_freq_4-8.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/inflswap_freq_8-16.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/inflswap_freq_16-32.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/inflswap_freq_32-64.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/inflswap_freq_64-128.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/inflswap_freq_128-256.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/inflswap_freq_256-512.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/inflswap_freq_512-inf.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/wordswap_freq_1-2.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/wordswap_freq_2-4.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/wordswap_freq_4-8.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/wordswap_freq_8-16.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/wordswap_freq_16-32.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/wordswap_freq_32-64.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/wordswap_freq_64-128.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/wordswap_freq_128-256.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/wordswap_freq_256-512.csv
+    - /datasets/metaspeechssl/yosukeh/assets/manifests/ltswap_libriheavy/ltswap_lh_small+medium+large/wordswap_freq_512-inf.csv
+  train:
+    model_preset: opt1b
+    dataset:
+      family: metasr_unit
+      train_split: train
+      valid_split: valid
+      valid_metrics:
+        names:
+        - tSC_dev_expanded
+        - lexical_dev_invocab
+        - lexical_dev_oov
+        - syntactic_dev
+        max_pairs: 1000
+        batch_size: 32
+      min_seq_len: 2
+      max_seq_len: 2048
+      max_num_tokens: 40960
+      batch_shuffle_window: 1000
+      example_shuffle_window: 0
+      unit_offset: 2
+    trainer:
+      grad_accumulation:
+        num_batches: 1
+      max_grad_norm: 0.5
+      grad_check: false
+      anomaly_detection: false
+      data_parallelism: ddp
+    optimizer:
+      config:
+        lr: 1e-3
+        betas:
+        - 0.9
+        - 0.95
+        eps: 1e-08
+        weight_decay: 0.1
+        differentiable: false
+        impl: fused
+      name: adamw
+    lr_scheduler:
+      config:
+        cycle_len: null
+        num_warmup_steps: 1000
+        cycle_mul: 1.0
+        lr_mul: 1.0
+        start_lr: 1e-30
+        final_lr: null
+        final_lr_scale: 0.1
+      name: cosine_annealing
+    regime:
+      num_steps: 150000
+      validate_every_n_steps: 100
+      checkpoint_every_n_steps: 100
+      publish_metrics_every_n_steps: 100
+      keep_best_n_checkpoints: 1
+      keep_last_n_checkpoints: 1
+      score_metric: nll_loss
+    common:
+      metric_recorders:
+        wandb:
+          enabled: true
+          project: gslm2_test
+          run_id: null
+          run_name: null
+          group: null
+          job_type: null
+          resume_mode: allow
+      no_sweep_dir: true
+      seed: 0
+    model:
+      family: opt
+      arch: metasr_unit_opt
+      vocab_size: 256
+      dtype: bfloat16
+    is_train_deterministic: true
+  eval:
+    offset: 2
+    bos: null
+    delete_data_model_after_eval: false

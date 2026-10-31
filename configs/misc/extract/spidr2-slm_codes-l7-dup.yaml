@@ -1,0 +1,33 @@
+# Full-rate SpidR 2.0 units; targets select TXT for duration and JSONL for vocoder/evaluation.
+# Replace /path/to/... with your local paths before launching.
+# sbatch scripts/launchers/slurm_extract_units.sbatch configs/misc/extract/spidr2-slm_codes-l7-dup.yaml
+checkpoint: /path/to/runs/spidr2.0/final.pt
+model_type: spidr
+layers:
+- 7
+clustering: codes
+vocab_size: 256
+deduplicate: false
+overwrite_folder: true
+targets:
+  duration_predictor:
+    manifests:
+    - /path/to/librilight/manifests/small_segmented_60s.csv
+    - /path/to/librilight/manifests/large_segmented_60s_dev.csv
+  unit_vocoder:
+    manifests:
+    - /path/to/prepared-ljspeech/manifests/ljspeech_train.csv
+    - /path/to/prepared-ljspeech/manifests/ljspeech_valid.csv
+    - /path/to/prepared-ljspeech/manifests/ljspeech_test.csv
+  generative_eval:
+    manifests:
+    - audio_manifest: /path/to/local-manifests/librispeech_dev-clean_1k_min6s.csv
+      prompt_boundary_manifest: /path/to/local-manifests/librispeech_dev-clean_1k_min6s_prompt_boundaries_3s.jsonl
+    - audio_manifest: /path/to/local-manifests/librispeech_test-clean_1k_min6s.csv
+      prompt_boundary_manifest: /path/to/local-manifests/librispeech_test-clean_1k_min6s_prompt_boundaries_3s.jsonl
+output_folder: /path/to/framewise-units/spidr2-slm_codes-l7-dup
+cross_stream_deduplicate: false
+chunk: true
+chunk_size: 2048
+batch_size: 8
+encoder_dtype: float32

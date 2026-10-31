@@ -1,0 +1,47 @@
+# Replace /path/to/... with local inputs and checkpoints. Every stage uses this same config.
+mode: speech
+output_directory: /path/to/evaluation/test/spidr2-slm_codes-l7_ll-6kh_350m
+sampling:
+  temperature: 1.31
+  top_p: 0.9
+  seed: 0
+sweep:
+  temperatures: []
+  seeds:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+speech:
+  input_manifest: /path/to/framewise-units/spidr2-slm_codes-l7-dup/7/generative_eval/full/librispeech_test-clean_1k_min6s.jsonl
+  prompt_unit_manifest: /path/to/framewise-units/spidr2-slm_codes-l7-dup/7/generative_eval/prompt/librispeech_test-clean_1k_min6s.jsonl
+  prompt_boundary_manifest: /path/to/local-manifests/librispeech_test-clean_1k_min6s_prompt_boundaries_3s.jsonl
+  duration_predictor_checkpoint: /path/to/runs/duration_predictor/spidr2-slm_codes-l7/best.pt
+  vocoder_checkpoint: /path/to/runs/unit_vocoder/spidr2-slm_codes-l7/vocoder-47977
+  feature_seconds: 0.02
+  prompt_max_seconds: 3.0
+  continuation_seconds: 10.0
+  model_checkpoint: /path/to/checkpoints/spidr2-slm_codes-l7_ll-6kh_350m/model.pt
+  model_config: /path/to/checkpoints/spidr2-slm_codes-l7_ll-6kh_350m/config.yaml
+evaluation:
+  reuse_transcripts: true
+  s12:
+    window_words: 15
+  perplexity:
+    model_path: meta-llama/Llama-3.2-1B
+    batch_size: 1
+    local_files_only: false
+  qwen3:
+    model_path: Qwen/Qwen3-Omni-30B-A3B-Instruct
+    batch_size: 1
+    local_files_only: false
+judge:
+  model_path: prometheus-eval/prometheus-8x7b-v2.0
+  max_new_tokens: 512
+  local_files_only: false

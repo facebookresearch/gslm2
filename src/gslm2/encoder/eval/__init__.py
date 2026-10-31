@@ -1,0 +1,54 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the license found in the
+# LICENSE file in the root directory of this source tree.
+
+"""Eval registry. Maps ``eval_type`` -> callable invoked by the launcher.
+
+Registered runners are called as ``runner(*args)`` from
+``ValidationLauncher.maybe_launch``, with ``args`` constructed by
+``_build_job_args`` in ``gslm2.encoder.training.validation``.
+"""
+
+import importlib
+import os
+from collections.abc import Callable
+from typing import Any
+
+from gslm2.shared.environment import restrict_cuda_to_local_rank
+
+EVAL_REGISTRY: dict[str, Callable[..., Any]] = {}
+
+#: ``eval_type`` -> ``(module, attribute)`` for every lazily-registered runner.
+EVAL_TARGETS: dict[str, tuple[str, str]] = {}
+
+
+def register_eval(name: str, runner: Callable[..., Any]) -> None:
+    EVAL_REGISTRY[name] = runner
+
+
+def _try_register(name: str, module: str, attr: str) -> None:
+    """Register a lazy resolver so the runner module isn't imported at registry init time."""
+
+    def _lazy_runner(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+        restrict_cuda_to_local_rank()
+        os.environ.setdefault("NCCL_DEBUG", "INFO")
+        os.environ.setdefault("NCCL_DEBUG_FILE", "/tmp/nccl_debug_%h_%p.log")  # noqa: S108
+        return getattr(importlib.import_module(module), attr)(*args, **kwargs)
+
+    EVAL_TARGETS[name] = (module, attr)
+    register_eval(name, _lazy_runner)
+
+
+# speech-encoder evals
+_try_register("loss", "gslm2.encoder.eval.validation", "validate_existing_checkpoint")
+_try_register("abx", "gslm2.encoder.eval.validation", "wrapper_abx")
+
+#: Metric keys runners append to ``metrics.jsonl`` (the only entries retention scores).
+EVAL_METRIC_KEYS: frozenset[str] = frozenset(
+    {
+        "loss",
+        "ssl_loss",
+    }
+)

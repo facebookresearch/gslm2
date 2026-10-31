@@ -1,0 +1,27 @@
+# Oracle inputs and synthesis settings derived from old-checkpoint dev config.
+mode: text
+output_directory: /checkpoint/devai/yosukeh/gslm2_test/gen_eval_old_ckpt/topline/textlm_bpe4096_lh-medium_opt-350m
+sampling: {}
+sweep:
+  temperatures: []
+  seeds:
+  - 0
+text:
+  input_manifest: /datasets/metaspeechssl/yosukeh/assets/manifests/librispeech/librispeech_dev-clean_1k_min6s_asr.jsonl
+  tokenizer_path: /datasets/metaspeechssl/shared/data/libriheavy/libriheavy-long/processed_text/cases_and_punc/tokenizers/lh-large_bpe4096/tokenizer.json
+  prompt_boundary_manifest: /datasets/metaspeechssl/yosukeh/assets/manifests/librispeech/librispeech_dev-clean_1k_min6s_prompt_boundaries_3s.jsonl
+  text_field: transcript
+  prompt_tokens: 8
+  continuation_tokens: 48
+  oracle: true
+evaluation:
+  s12:
+    window_words: 15
+  perplexity:
+    model_path: /datasets/pretrained-llms/Llama-3.2-1B
+    batch_size: 1
+    local_files_only: true
+judge:
+  model_path: /checkpoint/devai/yosukeh/llms/prometheus-8x7b-v2.0
+  max_new_tokens: 512
+  local_files_only: true

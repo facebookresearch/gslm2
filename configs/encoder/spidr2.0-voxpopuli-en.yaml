@@ -1,0 +1,81 @@
+# SpidR 2.0 encoder (90M) on VoxPopuli English (6kh). Paper: 400k steps, 16 GPUs,
+# global batch ~63 min audio, AdamW (0.9, 0.95), peak LR 2e-4 with 12k warmup /
+# 188k hold / 200k decay, feature extractor + teacher frozen at 200k steps.
+run:
+  workdir: /path/to/runs/spidr2.0-voxpopuli-en
+  wandb_project: gslm2
+  wandb_name: spidr2.0-voxpopuli-en-seed0
+  wandb_mode: offline
+  model_type: spidr
+  save_interval: 20000
+  log_interval: 200
+  random_seed: 0
+  slurm_validation:
+    account: ACCOUNT  # set your Slurm account
+    nodes: 1
+    gpus_per_node: 1
+    cpus_per_task: 10
+    time: 60
+
+data:
+  manifest: /path/to/manifests/VoxPopuli-eng-train-6000h.csv
+
+model:
+  teacher_use_heads: true
+  use_soft_targets: true
+  heads_layer_norm: center
+  heads_use_weight_norm: true
+  heads_init: sphere
+
+  regularisation:
+    reg_student: false
+    reg_teacher: true
+
+    codebook_entropy_weight: 0.1
+    codebook_entropy_schedule: constant_then_exponential_decrease
+
+    predictive_entropy_weight: 0.1
+    predictive_entropy_schedule: constant
+
+masking:
+  mask_prob: 0.8
+  mask_selection: static
+  mask_other: 0.0
+  mask_length: 10
+  no_mask_overlap: false
+  mask_min_space: 1
+  mask_channel_prob: 0.0
+  mask_channel_selection: static
+  mask_channel_other: 0.0
+  mask_channel_length: 10
+  no_mask_channel_overlap: false
+  mask_channel_min_space: 1
+  legacy_mask_drop: false
+  mask_drop_prob: 0.11
+
+optimizer:
+  lr: 0.0002
+
+validation:
+  - eval_type: loss
+    config:
+      group: dev-clean
+      data:
+        manifest: /path/to/eval_manifests/dev-clean.csv
+  - eval_type: loss
+    config:
+      group: dev-other
+      data:
+        manifest: /path/to/eval_manifests/dev-other.csv
+  - eval_type: abx
+    config:
+      subset:
+        manifest: /path/to/eval_manifests/dev-clean.csv
+        item_file: /path/to/eval_manifests/items/triphone-dev-clean.item
+      codebook_proba: false
+  - eval_type: abx
+    config:
+      subset:
+        manifest: /path/to/eval_manifests/dev-other.csv
+        item_file: /path/to/eval_manifests/items/triphone-dev-other.item
+      codebook_proba: false

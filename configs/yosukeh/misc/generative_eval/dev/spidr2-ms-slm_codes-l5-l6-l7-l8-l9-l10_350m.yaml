@@ -1,0 +1,54 @@
+# Derived from gen_eval_old_ckpt generation/dev, asr_perplexity/dev, and llm_judge/test.
+mode: speech
+output_directory: /checkpoint/devai/yosukeh/gslm2_test/gen_eval_old_ckpt/dev/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10_350m
+sampling:
+  temperature: 1.4
+  top_p: 0.9
+  seed: 0
+sweep:
+  temperatures:
+  - 1.4
+  - 1.45
+  - 1.5
+  - 1.55
+  - 1.6
+  - 1.65
+  seeds:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+speech:
+  input_manifest: /checkpoint/devai/yosukeh/slm_eval/gslm2/framewise_units/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10-dup/SLM_12212858/5/generative_eval/full/librispeech_dev-clean_1k_min6s.jsonl
+  prompt_unit_manifest: /checkpoint/devai/yosukeh/slm_eval/gslm2/framewise_units/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10-dup/SLM_12212858/5/generative_eval/prompt/librispeech_dev-clean_1k_min6s.jsonl
+  prompt_boundary_manifest: /datasets/metaspeechssl/yosukeh/assets/manifests/librispeech/librispeech_dev-clean_1k_min6s_prompt_boundaries_3s.jsonl
+  model_checkpoint: /checkpoint/devai/yosukeh/slm_eval/20260609-gslm2/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10-csd_gen-l10-l5-l6-l9-l8-l7_ll-6kh_350m/SLM_8052111/5/ckpt/checkpoints/step_18500/model/pp_00/tp_00/sdp_00.pt
+  duration_predictor_checkpoint: /checkpoint/devai/yosukeh/slm_eval/gslm2/duration_predictor/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10/best.pt
+  vocoder_checkpoint: /checkpoint/devai/yosukeh/slm_eval/gslm2/unit_vocoder/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10/vocoder-47977
+  feature_seconds: 0.02
+  prompt_max_seconds: 3.0
+  continuation_seconds: 10.0
+  depformer_temperature_annealing: 0.5
+  model_config: ../models/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10_350m.yaml
+evaluation:
+  reuse_transcripts: true
+  s12:
+    window_words: 15
+  qwen3:
+    model_path: /datasets/metaspeechssl/shared/models/llms/Qwen3-Omni-30B-A3B-Instruct
+    batch_size: 1
+    local_files_only: true
+  perplexity:
+    model_path: /datasets/pretrained-llms/Llama-3.2-1B
+    batch_size: 1
+    local_files_only: true
+judge:
+  model_path: /checkpoint/devai/yosukeh/llms/prometheus-8x7b-v2.0
+  max_new_tokens: 512
+  local_files_only: true

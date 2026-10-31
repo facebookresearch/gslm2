@@ -1,0 +1,146 @@
+[build-system]
+requires = ["setuptools>=75.3.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gslm2"
+version = "0.1"
+requires-python = ">=3.12"
+license = { text = "CC-BY-NC-4.0" }
+dependencies = [
+    # Shared dependencies compatible with both runtime environments.
+    "soundfile>=0.13.1",
+    "numpy>=2.1.3,<2.4",
+    "tqdm>=4.66.6",
+    "pandas>=2.2.3",
+    "polars>=1.31.0",
+    "pyarrow>=21.0.0",
+    "pyyaml>=6.0.2",
+    "submitit>=1.5.2",
+    "wandb>=0.18.5",
+    "scikit-learn>=1.7.0",
+    "transformers>=4.56.2",
+    "joblib>=1.5.2",
+    "matplotlib>=3.9.2",
+    "seaborn>=0.13.2",
+    "safetensors>=0.6.2",
+]
+
+[project.optional-dependencies]
+# Encoder training/extraction, duration prediction, vocoding, and synthesis.
+native = [
+    "torch==2.13.0",
+    "torchcodec==0.14.0",
+    "torchaudio>=2.11.0",
+    "fastabx>=0.8.0",
+    "speech-map>=0.1.2",
+    "discophon",
+    "torchdata>=0.11.0",
+    "openai-whisper==20250625",
+    "utmos-pytorch==0.1.0",
+]
+
+# LM speech/text preparation, fairseq2 training, and evaluation.
+lm = [
+    "torch==2.9.0",
+    "torchcodec==0.9.0",
+    "torchaudio==2.9.0",
+    "fairseq2~=0.7.0",
+    "polars>=1.31.0,<2",
+    # fairseq2 0.7 calls wandb.util.generate_id, removed in wandb 0.28.2.
+    "wandb>=0.18.5,<0.28.2",
+    "spacy>=3.8.0",
+]
+
+# ASR, conditional GenPPL, and judging; combine with the native runtime.
+eval = [
+    "accelerate>=1.12.0",
+    "openai-whisper==20250625",
+    "transformers>=5.0.0",
+    "librosa>=0.11.0",
+    "torchvision>=0.24.0",
+]
+
+[tool.uv]
+# fairseq2 0.7 runs with NumPy 2, but its metadata still declares NumPy 1.x.
+# uv pip install supplies this override on the command line; see README.md.
+override-dependencies = ["numpy>=2.1.3,<2.4"]
+conflicts = [
+    [
+        { extra = "native" },
+        { extra = "lm" },
+    ],
+]
+
+[project.entry-points."fairseq2.extension"]
+"fairseq2" = "gslm2.lm.register:setup_fairseq2_extension"
+
+[dependency-groups]
+dev = [
+    "ruff==0.11.9",
+    "mypy>=1.13.0",
+]
+
+[project.scripts]
+gslm2-train = "gslm2.encoder.__main__:main"
+gslm2-train-encoder = "gslm2.encoder.__main__:main"
+gslm2-train-lm = "gslm2.lm.recipes.train.run_recipe:main"
+gslm2-eval-abx = "gslm2.encoder.eval.abx:main"
+gslm2-eval-map = "gslm2.encoder.eval.map:main"
+gslm2-eval-codebook = "gslm2.encoder.eval.codebook:main"
+gslm2-eval-discophon = "gslm2.encoder.eval.discophon:main"
+gslm2-learn-kmeans = "gslm2.encoder.units.kmeans:main"
+gslm2-extract-units = "gslm2.encoder.units.__main__:main"
+gslm2-eval-slm = "gslm2.lm.eval.benchmarks:main"
+gslm2-generate = "gslm2.lm.generation.__main__:main"
+gslm2-synthesize-continuations = "gslm2.synthesis_continuations:main"
+gslm2-eval-generative = "gslm2.eval.generative.scoring.__main__:main"
+gslm2-eval-judge = "gslm2.eval.generative.judge.__main__:main"
+gslm2-calibrate-generative = "gslm2.eval.generative.calibration:main"
+gslm2-train-duration = "gslm2.duration.__main__:main"
+gslm2-train-vocoder = "gslm2.vocoder.__main__:main"
+gslm2-resynthesize = "gslm2.vocoder.inference:main"
+gslm2-synthesize = "gslm2.synthesis:main"
+gslm2-prepare-synthesis-data = "gslm2.vocoder.prepare:main"
+
+[tool.setuptools.package-data]
+"gslm2.vocoder" = ["LICENSE"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 119
+target-version = "py312"
+
+[tool.ruff.lint]
+ignore = [
+    "COM812",
+    "D",
+    "E501",
+    "EM101",
+    "EM102",
+    "ERA001",
+    "ISC001",
+    "PD011",
+    "PLC0414",
+    "PT009",
+    "PT027",
+    "PTH206",
+    "S101",
+    "S311",
+    "S602",
+    "S603",
+    "TRY003",
+]
+select = ["ALL"]
+
+[tool.ruff.lint.pep8-naming]
+extend-ignore-names = ["F"]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/**/*.py" = ["INP001", "T201", "PLR0915"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true

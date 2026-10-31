@@ -1,0 +1,27 @@
+# Inference settings from /checkpoint/devai/yosukeh/slm_eval/20260609-gslm2/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10-csd_gen-l10-l5-l6-l9-l8-l7_ll-6kh_350m/SLM_8052111/5/ckpt/config.yaml
+model_preset: msopt350m_4k
+model:
+  family: opt
+  arch: metasr_unit_multistream_opt
+  vocab_size:
+  - 256
+  - 256
+  - 256
+  - 256
+  - 256
+  - 256
+  config_overrides: null
+  dtype: bfloat16
+dataset:
+  unit_offset: 2
+depformer_generation_order:
+- 5
+- 0
+- 1
+- 4
+- 3
+- 2
+distill_temperature: 1.0
+multi_pred_loss_weight: 0.1
+self_distil_loss_weight: 1.0
+gen_loss_weight: 0.1

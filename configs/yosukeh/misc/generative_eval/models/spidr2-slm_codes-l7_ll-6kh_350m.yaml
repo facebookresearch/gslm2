@@ -1,0 +1,14 @@
+# Inference settings from /checkpoint/devai/yosukeh/slm_eval/20260609-gslm2/spidr2-slm_codes-l7-dedup_ll-6kh_350m/SLM_6812959/7/ckpt/config.yaml
+model_preset: opt350m
+model:
+  family: opt
+  arch: metasr_unit_opt
+  vocab_size: 256
+  config_overrides: null
+  dtype: bfloat16
+dataset:
+  unit_offset: 2
+distill_temperature: 1.0
+multi_pred_loss_weight: 0.0
+self_distil_loss_weight: 0.0
+gen_loss_weight: 0.0

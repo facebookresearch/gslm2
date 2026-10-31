@@ -1,0 +1,28 @@
+# Unit HiFi-GAN training on full-rate raw code IDs.
+# Replace /path/to/... with your local paths before launching.
+# sbatch scripts/launchers/slurm_vocoder.sbatch configs/misc/vocoder/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10.yaml
+workdir: /path/to/runs/unit_vocoder/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10
+train_manifest: /path/to/framewise-units/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10-dup/5/unit_vocoder/ljspeech_train.jsonl
+val_manifest: /path/to/framewise-units/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10-dup/5/unit_vocoder/ljspeech_valid.jsonl
+n_units:
+- 256
+- 256
+- 256
+- 256
+- 256
+- 256
+agg_type: concat_lin
+max_epochs: 2000
+seed: 1234
+lr: 0.0002
+betas:
+- 0.8
+- 0.99
+gamma: 0.999
+batch_size: 64
+segment_size: 8960
+units_hop_size: 320
+dtype: bfloat16
+log_interval: 100
+val_interval: 5000
+max_steps: 500000
