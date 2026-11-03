@@ -1,6 +1,6 @@
 # GSLM2: Multi-Stream Speech Representation Learning and Generative Spoken Language Modeling
 
-This repository provides research code for **GSLM2**, with training and
+This repository provides research code for [**GSLM2**](https://arxiv.org/abs/2611.01143), with training and
 evaluation pipelines for:
 
 - **Speech encoders:** SpidR 2.0, including representation evaluation and
@@ -85,7 +85,7 @@ duration and vocoder models in `gslm2`, and generate audio.
 For contributions, see the [contributing guide](.github/CONTRIBUTING.md)
 and [code of conduct](.github/CODE_OF_CONDUCT.md).
 
-<!-- ## Citation
+## Citation
 
 If you use this code or the released models in your research, please cite
 **GSLM2: Multi-Stream Speech Representation Learning and Generative Spoken
@@ -95,10 +95,10 @@ Language Modeling**.
 @article{higuchi_fizycki2026gslm2,
   title={GSLM2: Multi-Stream Speech Representation Learning and Generative Spoken Language Modeling},
   author={Yosuke Higuchi and Tom Fizycki and Mahi Luthra and Charles-Éric Saint-James and Azeez Syed and Angel Villar-Corrales and Mido Assran and Nicolas Ballas and Jiayi Shen and Dongyan Lin and Phillip Rust and Surya Parimi and Vanessa Stark and Alexandre Allauzen and Balázs Kégl and Juan Pino and Emmanuel Dupoux},
-  journal={arXiv preprint arXiv:XXXX.XXXXX},
+  journal={arXiv preprint arXiv:2611.01143},
   year={2026},
 }
-``` -->
+```
 
 ## Acknowledgements
 
