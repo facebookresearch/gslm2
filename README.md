@@ -67,7 +67,7 @@ duration and vocoder models in `gslm2`, and generate audio.
 | `src/gslm2/synthesis.py` | Duration expansion followed by unit vocoding |
 | `src/gslm2/shared/` | Audio I/O, logging, distributed processing, and Slurm utilities |
 | `configs/` | Encoder, LM, extraction, duration, vocoder, and generative speech evaluation templates |
-| `scripts/` | Launchers, analysis, and figure scripts |
+| `scripts/` | Slurm launchers and data preparation helpers |
 | `docs/` | Guides for data, experiments, synthesis, environments, and checkpoints |
 | `environment/` | Reference Conda exports and pip package snapshots |
 

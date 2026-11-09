@@ -192,7 +192,7 @@ dependencies:
       - frozenlist==1.8.0
       - fsspec==2026.7.0
       - googleapis-common-protos==1.75.5
-      # -e <path-to-gslm2-checkout>  (local repo; install manually, see ENVIRONMENT.md)
+      # -e <path-to-gslm2-checkout>  (local repo; install manually, see docs/environment.md)
       - h11==0.16.0
       - hf-xet==1.7.0
       - httpcore==1.0.9
@@ -312,10 +312,10 @@ dependencies:
       - thinc==8.3.13
       - threadpoolctl==3.7.0
       - tokenizers==0.23.2
-      # torch==2.13.0+cu130 installed separately from the CUDA index (see ENVIRONMENT.md)
+      # torch==2.13.0+cu130 installed separately from the CUDA index (see docs/environment.md)
       - torchcodec==0.14.0
       - torchdtw==0.4.2
-      # torchvision==0.28.0+cu130 installed separately from the CUDA index (see ENVIRONMENT.md)
+      # torchvision==0.28.0+cu130 installed separately from the CUDA index (see docs/environment.md)
       - tornado==6.5.10
       - tqdm==4.70.1
       - traitlets==5.16.1

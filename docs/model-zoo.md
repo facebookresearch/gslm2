@@ -19,20 +19,20 @@ In the extraction config, set `checkpoint` to the downloaded `final.pt` and
 ## Spoken language models
 
 The spoken language models use units from the encoder above. **SLM** uses
-layer 7; **GSLM** uses six aligned streams from layers 5–10, in that order.
+layer 7; **GSLM2** uses six aligned streams from layers 5–10, in that order.
 
 | Model | Training data | Nominal size | Actual parameters | Downloads |
 |---|---|---|---:|---|
 | SLM | Libri-Light 600h | 125M | 87,026,688 | [Weights](https://dl.fbaipublicfiles.com/shared/devai/assets/gslm2/checkpoints/lm/spidr2-slm_codes-l7_ll-600h_125m/model.pt) · [Config](https://dl.fbaipublicfiles.com/shared/devai/assets/gslm2/checkpoints/lm/spidr2-slm_codes-l7_ll-600h_125m/config.yaml) |
-| SLM | Libri-Light 6000h | 350M | 304,939,008 | [Weights](https://dl.fbaipublicfiles.com/shared/devai/assets/gslm2/checkpoints/lm/spidr2-slm_codes-l7_ll-6kh_350m/model.pt) · [Config](https://dl.fbaipublicfiles.com/shared/devai/assets/gslm2/checkpoints/lm/spidr2-slm_codes-l7_ll-6kh_350m/config.yaml) |
-| SLM | Libri-Light 60000h | 1B | 1,213,857,792 | [Weights](https://dl.fbaipublicfiles.com/shared/devai/assets/gslm2/checkpoints/lm/spidr2-slm_codes-l7_ll-60kh_1b/model.pt) · [Config](https://dl.fbaipublicfiles.com/shared/devai/assets/gslm2/checkpoints/lm/spidr2-slm_codes-l7_ll-60kh_1b/config.yaml) |
-| GSLM | Libri-Light 600h | 125M | 96,309,504 | [Weights](https://dl.fbaipublicfiles.com/shared/devai/assets/gslm2/checkpoints/lm/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10_ll-600h_125m/model.pt) · [Config](https://dl.fbaipublicfiles.com/shared/devai/assets/gslm2/checkpoints/lm/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10_ll-600h_125m/config.yaml) |
-| GSLM | Libri-Light 6000h | 350M | 315,472,128 | [Weights](https://dl.fbaipublicfiles.com/shared/devai/assets/gslm2/checkpoints/lm/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10_ll-6kh_350m/model.pt) · [Config](https://dl.fbaipublicfiles.com/shared/devai/assets/gslm2/checkpoints/lm/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10_ll-6kh_350m/config.yaml) |
-| GSLM | Libri-Light 60000h | 1B | 1,229,392,128 | [Weights](https://dl.fbaipublicfiles.com/shared/devai/assets/gslm2/checkpoints/lm/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10_ll-60kh_1b/model.pt) · [Config](https://dl.fbaipublicfiles.com/shared/devai/assets/gslm2/checkpoints/lm/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10_ll-60kh_1b/config.yaml) |
-| GSLM | 60M h conversational speech | 7B | | Planned release |
+| SLM | Libri-Light 6K h | 350M | 304,939,008 | [Weights](https://dl.fbaipublicfiles.com/shared/devai/assets/gslm2/checkpoints/lm/spidr2-slm_codes-l7_ll-6kh_350m/model.pt) · [Config](https://dl.fbaipublicfiles.com/shared/devai/assets/gslm2/checkpoints/lm/spidr2-slm_codes-l7_ll-6kh_350m/config.yaml) |
+| SLM | Libri-Light 60K h | 1B | 1,213,857,792 | [Weights](https://dl.fbaipublicfiles.com/shared/devai/assets/gslm2/checkpoints/lm/spidr2-slm_codes-l7_ll-60kh_1b/model.pt) · [Config](https://dl.fbaipublicfiles.com/shared/devai/assets/gslm2/checkpoints/lm/spidr2-slm_codes-l7_ll-60kh_1b/config.yaml) |
+| GSLM2 | Libri-Light 600h | 125M | 96,309,504 | [Weights](https://dl.fbaipublicfiles.com/shared/devai/assets/gslm2/checkpoints/lm/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10_ll-600h_125m/model.pt) · [Config](https://dl.fbaipublicfiles.com/shared/devai/assets/gslm2/checkpoints/lm/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10_ll-600h_125m/config.yaml) |
+| GSLM2 | Libri-Light 6K h | 350M | 315,472,128 | [Weights](https://dl.fbaipublicfiles.com/shared/devai/assets/gslm2/checkpoints/lm/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10_ll-6kh_350m/model.pt) · [Config](https://dl.fbaipublicfiles.com/shared/devai/assets/gslm2/checkpoints/lm/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10_ll-6kh_350m/config.yaml) |
+| GSLM2 | Libri-Light 60K h | 1B | 1,229,392,128 | [Weights](https://dl.fbaipublicfiles.com/shared/devai/assets/gslm2/checkpoints/lm/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10_ll-60kh_1b/model.pt) · [Config](https://dl.fbaipublicfiles.com/shared/devai/assets/gslm2/checkpoints/lm/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10_ll-60kh_1b/config.yaml) |
+| GSLM2 | Conversational Speech 6M h | 7B | 6,480,210,176 | [Weights](https://dl.fbaipublicfiles.com/shared/devai/assets/gslm2/checkpoints/lm/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10_cs-6mh_7b/model.pt) · [Config](https://dl.fbaipublicfiles.com/shared/devai/assets/gslm2/checkpoints/lm/spidr2-ms-slm_codes-l5-l6-l7-l8-l9-l10_cs-6mh_7b/config.yaml) |
 
 The size labels follow nominal OPT categories; actual parameter counts differ
-between SLM and GSLM. Each released `model.pt` is the best retained checkpoint
+between SLM and GSLM2. Each released `model.pt` is the best retained checkpoint
 according to validation `nll_loss`. Its training step and selection score are
 recorded in `manifest.json`.
 
@@ -62,7 +62,7 @@ Use the [LM environment](environment.md#lm-environment) with fairseq2 0.7 and
 PyTorch 2.9, the versions used to verify the released packages.
 
 Load `model.pt` with the matching `config.yaml`. Each package's `README.md`
-provides Python loading, paired benchmark evaluation, and fine-tuning examples.
+provides a Python loading example and checksum verification instructions.
 For data preparation and training, use a full
 [LM experiment template](../configs/lm/README.md).
 
